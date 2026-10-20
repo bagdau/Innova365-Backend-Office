@@ -1,0 +1,144 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Design tokens ──────────────────────────────────────────── */
+:root {
+  color-scheme: dark;
+  /* Colores como canales RGB para soportar opacidad de Tailwind (bg-primary/20) */
+  --background:         15 15 15;
+  --foreground:         240 235 224;
+  --card:               28 28 28;
+  --card-foreground:    240 235 224;
+  --muted:              37 37 37;
+  --muted-foreground:   168 168 168;
+  --border:             56 56 56;
+  --primary:            232 89 12;
+  --primary-foreground: 255 255 255;
+  --primary-soft:       42 21 6;
+  --secondary:          42 42 42;
+  --sidebar-bg:         20 20 20;
+  --header-bg:          20 20 20;
+
+  /* Paleta inclusiva para daltonismo (cyan = éxito, magenta = error) */
+  --success:     34 211 238;
+  --success-bg:  4 42 48;
+  --warning:     251 191 36;
+  --warning-bg:  44 31 4;
+  --error:       244 114 182;
+  --error-bg:    42 10 26;
+  --info:        96 165 250;
+  --info-bg:     10 22 40;
+
+  --scroll-track: 28 28 28;
+  --scroll-thumb: 56 56 56;
+
+  --radius-s:    4px;
+  --radius-m:    8px;
+  --radius-l:    12px;
+  --radius-pill: 9999px;
+}
+
+/* Tema claro */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --background:         250 248 245;
+  --foreground:         28 25 23;
+  --card:               255 255 255;
+  --card-foreground:    28 25 23;
+  --muted:              241 238 233;
+  --muted-foreground:   98 92 85;
+  --border:             222 216 207;
+  --primary:            214 80 8;
+  --primary-foreground: 255 255 255;
+  --primary-soft:       255 237 224;
+  --secondary:          235 231 224;
+  --sidebar-bg:         255 255 255;
+  --header-bg:          255 255 255;
+
+  --success:     14 116 144;
+  --success-bg:  207 244 250;
+  --warning:     161 98 7;
+  --warning-bg:  254 243 199;
+  --error:       190 24 93;
+  --error-bg:    252 231 243;
+  --info:        29 78 216;
+  --info-bg:     219 234 254;
+
+  --scroll-track: 241 238 233;
+  --scroll-thumb: 200 193 183;
+}
+
+/* ─── Base reset ────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;          /* base legible — sube todo proporcionalmente */
+  scroll-behavior: smooth;
+}
+
+body, #root {
+  min-height: 100vh;
+  background-color: rgb(var(--background));
+  color: rgb(var(--foreground));
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 1rem;          /* 16px */
+  line-height: 1.6;         /* espaciado entre líneas generoso */
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Accesibilidad: foco visible ────────────────────────────── */
+:focus-visible {
+  outline: 3px solid rgb(var(--primary));
+  outline-offset: 3px;
+  border-radius: var(--radius-s);
+}
+
+/* ─── Tamaño mínimo de área táctil ──────────────────────────── */
+button, a, [role="button"], [role="link"] {
+  min-height: 38px;
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: rgb(var(--scroll-track)); }
+::-webkit-scrollbar-thumb { background: rgb(var(--scroll-thumb)); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--muted-foreground)); }
+
+/* ─── Utilidades extra ───────────────────────────────────────── */
+@layer utilities {
+  .text-muted        { color: rgb(var(--muted-foreground)); }
+  .bg-card           { background-color: rgb(var(--card)); }
+  .border-border     { border-color: rgb(var(--border)); }
+}
+
+/* Плавающие панели (выпадающие списки, календарь) */
+@keyframes popIn { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes sheetUp { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.pop-in { animation: popIn .14s ease-out; }
+.sheet-up { animation: sheetUp .22s cubic-bezier(.2,.8,.2,1); }
+.fade-in { animation: fadeIn .18s ease-out; }
+@media (prefers-reduced-motion: reduce) { .pop-in, .sheet-up, .fade-in { animation: none; } }
+
+/* Отклик касаний: без задержки двойного тапа и без серой вспышки; кнопки реагируют мгновенно */
+html { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+button, [role="button"], a, select, summary, label { touch-action: manipulation; }
+button:not(:disabled):active, [role="button"]:active { transform: scale(.97); transition: transform 60ms ease-out; }
+
+/* Сенсорные экраны: иконки-кнопки не меньше 40×40 px (палец), даже если сама иконка 14–16 px */
+@media (pointer: coarse) {
+  button:has(> svg:only-child), [role="button"]:has(> svg:only-child) { min-width: 40px; min-height: 40px; display: inline-flex; align-items: center; justify-content: center; }
+}
+
+
+/* ── Экранная клавиатура: страница и окна сдвигаются на высоту клавиатуры ── */
+html.vkb-open body { padding-bottom: var(--vkb-h, 0px); }
+html.vkb-open .h-\[100dvh\] { height: calc(100dvh - var(--vkb-h, 0px)); }
+html.vkb-open .min-h-\[100dvh\] { min-height: calc(100dvh - var(--vkb-h, 0px)); }
+html.vkb-open div[role='presentation'].fixed { bottom: var(--vkb-h, 0px); }
+html.vkb-open div[role='presentation'] > [role='dialog'] { max-height: calc(100dvh - var(--vkb-h, 0px) - 1rem); }

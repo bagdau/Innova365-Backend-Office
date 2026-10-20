@@ -1,0 +1,1 @@
+ALTER TABLE "Impresora" ADD COLUMN "auto" BOOLEAN NOT NULL DEFAULT false;

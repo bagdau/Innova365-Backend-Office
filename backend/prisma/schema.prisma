@@ -1,0 +1,428 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Restaurante {
+  id          String   @id @default(cuid())
+  nombre      String
+  direccion   String?
+  telefono    String?
+  logo        String?
+  timerMesa   Int      @default(45)
+  pieTicket   String?
+  /// Содержимое QR на чеке; поддерживает {numero} {total} {fecha} {id} {restaurante}
+  qrTicket    String?
+  /// Код валюты ISO (KZT, RUB, KGS, UZS …) — задаёт владелец/админ
+  moneda      String   @default("KZT")
+  /// Содержимое QR для оплаты клиентом (ссылка/реквизиты); поддерживает {total} {numero} {moneda} {restaurante}
+  qrPago      String?
+  creadoEn    DateTime @default(now())
+
+  usuarios   Usuario[]
+  mesas      Mesa[]
+  categorias Categoria[]
+  productos  Producto[]
+  insumos    Insumo[]
+  pedidos    Pedido[]
+  proveedores Proveedor[]
+  compras     Compra[]
+  impresoras  Impresora[]
+}
+
+model Usuario {
+  id            String      @id @default(cuid())
+  nombre        String
+  email         String      @unique
+  passwordHash  String
+  rol           Rol
+  activo        Boolean     @default(true)
+  restauranteId String
+  restaurante   Restaurante @relation(fields: [restauranteId], references: [id])
+  pedidos       Pedido[]
+  creadoEn      DateTime    @default(now())
+
+  @@index([restauranteId])
+}
+
+enum Rol {
+  /// Владелец: выше администратора, видит и может всё
+  SUPERADMIN
+  ADMIN
+  MESERO
+  COCINERO
+  CAJERO
+}
+
+model Mesa {
+  id            String     @id @default(cuid())
+  numero        Int
+  capacidad     Int        @default(4)
+  estado        EstadoMesa @default(LIBRE)
+  restauranteId String
+  restaurante   Restaurante @relation(fields: [restauranteId], references: [id])
+  pedidos       Pedido[]
+
+  @@index([restauranteId])
+}
+
+enum EstadoMesa {
+  LIBRE
+  OCUPADA
+  EN_ESPERA
+}
+
+model Categoria {
+  id            String      @id @default(cuid())
+  nombre        String
+  restauranteId String
+  restaurante   Restaurante @relation(fields: [restauranteId], references: [id])
+  productos     Producto[]
+
+  @@index([restauranteId])
+}
+
+model Producto {
+  id            String      @id @default(cuid())
+  nombre        String
+  descripcion   String?
+  precio        Decimal
+  imagen        String?
+  disponible      Boolean     @default(true)
+  requiereCocina  Boolean     @default(true)
+  categoriaId     String
+  categoria     Categoria   @relation(fields: [categoriaId], references: [id])
+  restauranteId String
+  restaurante   Restaurante @relation(fields: [restauranteId], references: [id])
+  itemsPedido   ItemPedido[]
+  receta        Receta?
+  enRecetas     RecetaItem[] @relation("ComponenteReceta")
+
+  @@index([restauranteId])
+  @@index([categoriaId])
+}
+
+model Insumo {
+  id            String      @id @default(cuid())
+  nombre        String
+  categoria     String?
+  unidad        String
+  stockActual   Decimal
+  stockMinimo   Decimal
+  proveedor     String?
+  costoUnitario Decimal?    @db.Decimal(14, 2)
+  restauranteId String
+  restaurante   Restaurante @relation(fields: [restauranteId], references: [id])
+  creadoEn      DateTime    @default(now())
+  actualizadoEn DateTime    @updatedAt
+  movimientos   MovimientoInventario[]
+  comprasItems  CompraItem[]
+  recetaItems   RecetaItem[]
+
+  @@index([restauranteId])
+}
+
+model Pedido {
+  id            String       @id @default(cuid())
+  numero        Int          @default(autoincrement())
+  tipo          TipoPedido
+  estado        EstadoPedido @default(PENDIENTE)
+  mesaId        String?
+  mesa          Mesa?        @relation(fields: [mesaId], references: [id])
+  meseroId      String?
+  mesero        Usuario?     @relation(fields: [meseroId], references: [id])
+  restauranteId String
+  restaurante   Restaurante  @relation(fields: [restauranteId], references: [id])
+  items         ItemPedido[]
+  pagado        Boolean      @default(false)
+  metodoPago    String?
+  total         Decimal?
+  tiempoInicio  DateTime?
+  tiempoListo   DateTime?
+  creadoEn      DateTime     @default(now())
+  actualizadoEn DateTime     @updatedAt
+
+  @@index([restauranteId, estado])
+  @@index([restauranteId, creadoEn])
+  @@index([mesaId])
+  @@index([meseroId])
+}
+
+enum TipoPedido {
+  EN_MESA
+  PARA_LLEVAR
+}
+
+enum EstadoPedido {
+  PENDIENTE
+  EN_COCINA
+  EN_PREPARACION
+  LISTO
+  ENTREGADO
+  PAGADO
+  CANCELADO
+}
+
+model ItemPedido {
+  id         String   @id @default(cuid())
+  pedidoId   String
+  pedido     Pedido   @relation(fields: [pedidoId], references: [id])
+  productoId String
+  producto   Producto @relation(fields: [productoId], references: [id])
+  cantidad   Int
+  precio     Decimal
+  subtotal   Decimal
+  servido    Boolean  @default(false)
+  /// Ингредиенты по тех-карте уже списаны со склада (для возврата при отмене и защиты от двойного списания)
+  descontado Boolean  @default(false)
+
+  @@index([pedidoId])
+  @@index([productoId])
+}
+
+// ───────────────────────── Compras y almacén ─────────────────────────
+
+model Proveedor {
+  id            String      @id @default(cuid())
+  nombre        String
+  contacto      String?
+  telefono      String?
+  email         String?
+  notas         String?
+  activo        Boolean     @default(true)
+  restauranteId String
+  restaurante   Restaurante @relation(fields: [restauranteId], references: [id])
+  compras       Compra[]
+  creadoEn      DateTime    @default(now())
+
+  @@index([restauranteId])
+}
+
+enum EstadoCompra {
+  PEDIDA
+  PARCIAL
+  RECIBIDA
+  CANCELADA
+}
+
+model Compra {
+  id            String       @id @default(cuid())
+  numero        Int          @default(autoincrement())
+  estado        EstadoCompra @default(PEDIDA)
+  proveedorId   String
+  proveedor     Proveedor    @relation(fields: [proveedorId], references: [id])
+  restauranteId String
+  restaurante   Restaurante  @relation(fields: [restauranteId], references: [id])
+  usuarioId     String?
+  fechaEsperada DateTime?
+  notas         String?
+  total         Decimal      @default(0) @db.Decimal(14, 2)
+  items         CompraItem[]
+  recepciones   Recepcion[]
+  creadoEn      DateTime     @default(now())
+  actualizadoEn DateTime     @updatedAt
+
+  @@index([restauranteId, estado])
+  @@index([restauranteId, creadoEn])
+  @@index([proveedorId])
+}
+
+model CompraItem {
+  id               String  @id @default(cuid())
+  compraId         String
+  compra           Compra  @relation(fields: [compraId], references: [id], onDelete: Cascade)
+  insumoId         String
+  insumo           Insumo  @relation(fields: [insumoId], references: [id])
+  cantidad         Decimal @db.Decimal(14, 3)
+  costoUnitario    Decimal @db.Decimal(14, 2)
+  cantidadRecibida Decimal @default(0) @db.Decimal(14, 3)
+
+  @@index([compraId])
+  @@index([insumoId])
+}
+
+/// Documento de recepción: qué llegó realmente (puede ser parcial o 0 = "no trajeron").
+model Recepcion {
+  id            String          @id @default(cuid())
+  compraId      String
+  compra        Compra          @relation(fields: [compraId], references: [id], onDelete: Cascade)
+  restauranteId String
+  usuarioId     String?
+  notas         String?
+  cerrada       Boolean         @default(false)
+  items         RecepcionItem[]
+  creadoEn      DateTime        @default(now())
+
+  @@index([compraId])
+  @@index([restauranteId, creadoEn])
+}
+
+model RecepcionItem {
+  id            String    @id @default(cuid())
+  recepcionId   String
+  recepcion     Recepcion @relation(fields: [recepcionId], references: [id], onDelete: Cascade)
+  compraItemId  String
+  insumoId      String
+  cantidad      Decimal   @db.Decimal(14, 3)
+  costoUnitario Decimal   @db.Decimal(14, 2)
+
+  @@index([recepcionId])
+}
+
+enum TipoMovimiento {
+  INICIAL
+  COMPRA
+  AJUSTE
+  MERMA
+  REVISION
+  CONSUMO
+  DEVOLUCION
+}
+
+/// Libro de movimientos: cada cambio de stock deja una fila (qué, cuánto, quién, saldo resultante).
+model MovimientoInventario {
+  id            String         @id @default(cuid())
+  restauranteId String
+  insumoId      String
+  insumo        Insumo         @relation(fields: [insumoId], references: [id], onDelete: Cascade)
+  tipo          TipoMovimiento
+  cantidad      Decimal        @db.Decimal(18, 6)
+  saldo         Decimal        @db.Decimal(18, 6)
+  costoUnitario Decimal?       @db.Decimal(14, 2)
+  motivo        String?
+  compraId      String?
+  recepcionId   String?
+  /// Заказ, по которому списан расход (CONSUMO) или сделан возврат (DEVOLUCION)
+  pedidoId      String?
+  usuarioId     String?
+  creadoEn      DateTime       @default(now())
+
+  @@index([pedidoId])
+  @@index([insumoId, creadoEn])
+  @@index([restauranteId, creadoEn])
+  @@index([compraId])
+}
+
+/// Idempotencia: un reintento con la misma clave devuelve el resultado guardado y no duplica nada.
+model OperacionIdem {
+  clave         String   @id
+  restauranteId String
+  tipo          String
+  resultado     Json?
+  creadoEn      DateTime @default(now())
+
+  @@index([creadoEn])
+}
+
+// ───────────────────────── Impresión ─────────────────────────
+
+enum TipoImpresora {
+  RED
+  AGENTE
+  NAVEGADOR
+}
+
+model Impresora {
+  id            String        @id @default(cuid())
+  restauranteId String
+  restaurante   Restaurante   @relation(fields: [restauranteId], references: [id])
+  nombre        String
+  tipo          TipoImpresora
+  /// RED: IP de la impresora · AGENTE: URL del agente (http://host:9101)
+  host          String?
+  puerto        Int?          @default(9100)
+  /// AGENTE: nombre de la impresora en Windows
+  nombreSistema String?
+  token         String?
+  ancho         Int           @default(80)
+  codepage      String        @default("cp866")
+  /// RECIBO, CUENTA, COCINA, REPORTE
+  usos          String[]
+  corte         Boolean       @default(true)
+  cajon         Boolean       @default(false)
+  copias        Int           @default(1)
+  /// Imprimir sin pulsar nada: ticket de cocina al crear el pedido, recibo al cobrar
+  auto          Boolean       @default(false)
+  activa        Boolean       @default(true)
+  creadoEn      DateTime      @default(now())
+  trabajos      TrabajoImpresion[]
+
+  @@index([restauranteId])
+}
+
+model TrabajoImpresion {
+  id            String     @id @default(cuid())
+  restauranteId String
+  impresoraId   String?
+  impresora     Impresora? @relation(fields: [impresoraId], references: [id], onDelete: SetNull)
+  tipo          String
+  referencia    String?
+  ok            Boolean
+  error         String?
+  ms            Int?
+  usuarioId     String?
+  creadoEn      DateTime   @default(now())
+
+  @@index([restauranteId, creadoEn])
+}
+
+/// Кто, когда и что сделал в системе (только записи, без паролей и тел запросов)
+model RegistroActividad {
+  id            String   @id @default(cuid())
+  restauranteId String
+  usuarioId     String?
+  usuarioNombre String
+  rol           String
+  accion        String
+  detalle       String?
+  ref           String?
+  metodo        String
+  ruta          String
+  estado        Int
+  creadoEn      DateTime @default(now())
+
+  @@index([restauranteId, creadoEn])
+  @@index([usuarioId, creadoEn])
+}
+
+// ───────────────────────── Тех-карты (технологические карты блюд) ─────────────────────────
+
+/// Тех-карта блюда: состав на 1 порцию. Продажа блюда автоматически списывает ингредиенты со склада.
+model Receta {
+  id            String       @id @default(cuid())
+  productoId    String       @unique
+  producto      Producto     @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  restauranteId String
+  /// Выход готового блюда, г (или мл) — для печати тех-карты
+  rendimiento   Decimal?     @db.Decimal(14, 3)
+  /// Технология приготовления
+  tecnologia    String?
+  items         RecetaItem[]
+  actualizadoEn DateTime     @updatedAt
+
+  @@index([restauranteId])
+}
+
+/// Строка состава: ингредиент со склада (insumoId) ЛИБО другое блюдо-компонент (componenteId — для комбо и сетов).
+model RecetaItem {
+  id           String    @id @default(cuid())
+  recetaId     String
+  receta       Receta    @relation(fields: [recetaId], references: [id], onDelete: Cascade)
+  insumoId     String?
+  insumo       Insumo?   @relation(fields: [insumoId], references: [id], onDelete: Restrict)
+  componenteId String?
+  componente   Producto? @relation("ComponenteReceta", fields: [componenteId], references: [id], onDelete: Restrict)
+  /// Брутто на 1 порцию — столько списывается со склада (в единице измерения ингредиента) / сколько порций компонента
+  cantidad     Decimal   @db.Decimal(14, 6)
+  /// Нетто (в готовом блюде), необязательно — для печати тех-карты
+  neto         Decimal?  @db.Decimal(14, 6)
+
+  @@index([recetaId])
+  @@index([insumoId])
+  @@index([componenteId])
+}

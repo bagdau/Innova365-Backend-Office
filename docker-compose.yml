@@ -1,0 +1,86 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-restaurantos}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-restaurantos}
+      POSTGRES_DB: ${POSTGRES_DB:-restaurantos}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-restaurantos} -d ${POSTGRES_DB:-restaurantos}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      TZ: ${TZ:-Asia/Almaty}   # часовой пояс ресторана: время на чеках и границы «сегодня» в отчётах
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      PORT: 3001
+      DATABASE_URL: postgresql://${POSTGRES_USER:-restaurantos}:${POSTGRES_PASSWORD:-restaurantos}@db:5432/${POSTGRES_DB:-restaurantos}?connection_limit=20&pool_timeout=10
+      DIRECT_URL: postgresql://${POSTGRES_USER:-restaurantos}:${POSTGRES_PASSWORD:-restaurantos}@db:5432/${POSTGRES_DB:-restaurantos}
+      JWT_SECRET: ${JWT_SECRET:-change-me-jwt-secret}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY:-}
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads:/app/uploads   # фото блюд переживают пересборку контейнера
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # доступ к агенту печати на этом ПК
+    ports:
+      - "3001:3001"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: /api
+        VITE_SUPABASE_URL: ${SUPABASE_URL:-}
+        VITE_SUPABASE_ANON: ${SUPABASE_ANON_KEY:-}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+  # Innova DB Studio — собственный просмотрщик/редактор базы данных (как phpMyAdmin): http://<сервер>:8200
+  # Вход под учётной записью PostgreSQL (POSTGRES_USER / POSTGRES_PASSWORD). Закройте порт 8200 файрволом для чужих сетей.
+  dbadmin:
+    build: ./dbadmin
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-restaurantos}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    ports:
+      - "${DBADMIN_BIND:-0.0.0.0}:8200:8200"
+
+  # Разовая загрузка тестовых данных: docker compose --profile seed run --rm seed
+  seed:
+    build: ./backend
+    profiles: ["seed"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-restaurantos}:${POSTGRES_PASSWORD:-restaurantos}@db:5432/${POSTGRES_DB:-restaurantos}
+      DIRECT_URL: postgresql://${POSTGRES_USER:-restaurantos}:${POSTGRES_PASSWORD:-restaurantos}@db:5432/${POSTGRES_DB:-restaurantos}
+    command: ["sh", "-c", "npx prisma migrate deploy && npm run db:seed"]
+
+volumes:
+  pgdata:
+  uploads:

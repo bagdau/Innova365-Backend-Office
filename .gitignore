@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+*.local
+.DS_Store
+prisma/node_modules/
+print-agent/agent-token.txt
+.scratch/

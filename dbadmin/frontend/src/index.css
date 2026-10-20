@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Палитра «Innova DB Studio»: графитово-синяя тема с бирюзовым акцентом ── */
+:root {
+  color-scheme: dark;
+  --bg: 8 12 21;
+  --surface: 14 20 33;
+  --surface2: 21 29 46;
+  --line: 35 47 72;
+  --ink: 226 232 244;
+  --muted: 128 144 176;
+  --accent: 45 212 191;
+  --accentfg: 4 24 22;
+  --danger: 251 90 120;
+  --warn: 250 176 40;
+  --ok: 52 211 153;
+  --info: 122 162 255;
+  --grid-alt: 255 255 255;
+}
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: 242 245 250;
+  --surface: 255 255 255;
+  --surface2: 238 242 249;
+  --line: 214 222 236;
+  --ink: 22 30 48;
+  --muted: 98 112 140;
+  --accent: 13 148 136;
+  --accentfg: 255 255 255;
+  --danger: 220 38 80;
+  --warn: 190 120 0;
+  --ok: 5 150 105;
+  --info: 59 100 220;
+  --grid-alt: 0 0 0;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0; background: rgb(var(--bg)); color: rgb(var(--ink));
+  font-family: Inter, ui-sans-serif, system-ui, 'Segoe UI', Roboto, sans-serif; font-size: 14px;
+  -webkit-font-smoothing: antialiased; overscroll-behavior: none;
+}
+* { scrollbar-width: thin; scrollbar-color: rgb(var(--line)) transparent; }
+::selection { background: rgb(var(--accent) / .3); }
+
+@layer components {
+  .btn { @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 h-9 text-sm font-medium transition select-none whitespace-nowrap disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60; }
+  .btn-primary { @apply bg-accent text-accentfg hover:brightness-110 active:brightness-95; }
+  .btn-soft { @apply bg-surface2 text-ink hover:bg-line/60 border border-line; }
+  .btn-ghost { @apply text-muted hover:text-ink hover:bg-surface2; }
+  .btn-danger { @apply bg-danger/15 text-danger hover:bg-danger/25 border border-danger/30; }
+  .btn-sm { @apply h-8 px-2.5 text-[13px]; }
+  .input { @apply h-9 w-full rounded-lg border border-line bg-surface2/60 px-3 text-sm text-ink placeholder:text-muted/70 focus:outline-none focus:border-accent/70 focus:ring-2 focus:ring-accent/20 transition; }
+  textarea.input { @apply h-auto py-2 leading-relaxed; }
+  .card { @apply rounded-xl2 border border-line bg-surface; }
+  .label { @apply mb-1 block text-xs font-medium text-muted; }
+  .chip { @apply inline-flex items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-0.5 text-[11px] font-semibold; }
+  .th { @apply sticky top-0 z-10 bg-surface2 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-muted border-b border-line whitespace-nowrap; }
+  .td { @apply px-3 py-1.5 border-b border-line/60 align-top; }
+}
+
+/* ── Таблица данных ── */
+.grid-wrap { overflow: auto; }
+.data-table { border-collapse: separate; border-spacing: 0; font-family: 'JetBrains Mono','Cascadia Code',ui-monospace,Consolas,monospace; font-size: 12.5px; }
+.data-table tbody tr:nth-child(even) td { background: rgb(var(--grid-alt) / .018); }
+.data-table tbody tr:hover td { background: rgb(var(--accent) / .07); }
+.data-table tbody tr.sel td { background: rgb(var(--accent) / .14); }
+.data-table td { border-bottom: 1px solid rgb(var(--line) / .55); padding: 4px 10px; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.data-table th { position: sticky; top: 0; z-index: 2; background: rgb(var(--surface2)); border-bottom: 1px solid rgb(var(--line)); padding: 7px 10px; text-align: left; white-space: nowrap; font-family: Inter, system-ui, sans-serif; font-size: 11px; font-weight: 600; color: rgb(var(--muted)); }
+.data-table td.num { text-align: right; }
+.null-cell { color: rgb(var(--muted) / .7); font-style: italic; }
+
+/* ── CodeMirror ── */
+.cm-editor { height: 100%; background: transparent; font-size: 13.5px; }
+.cm-editor.cm-focused { outline: none; }
+.cm-scroller { font-family: 'JetBrains Mono','Cascadia Code',ui-monospace,Consolas,monospace !important; line-height: 1.6; }
+.cm-gutters { background: transparent !important; border: 0 !important; color: rgb(var(--muted) / .6) !important; }
+.cm-activeLine, .cm-activeLineGutter { background: rgb(var(--accent) / .06) !important; }
+.cm-tooltip { background: rgb(var(--surface2)) !important; border: 1px solid rgb(var(--line)) !important; border-radius: 10px !important; color: rgb(var(--ink)) !important; }
+.cm-tooltip-autocomplete ul li[aria-selected] { background: rgb(var(--accent) / .22) !important; color: rgb(var(--ink)) !important; }
+
+/* ── Мелочи ── */
+.fade-in { animation: fade .15s ease-out; }
+.spin { animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.dot-bg { background-image: radial-gradient(rgb(var(--line) / .6) 1px, transparent 1px); background-size: 22px 22px; }
+.safe-b { padding-bottom: max(env(safe-area-inset-bottom), 0px); }

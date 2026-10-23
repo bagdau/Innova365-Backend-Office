@@ -1,4 +1,4 @@
-# Innova365 — Sistema de Gestión de Restaurantes
+# Innova365 — Система управления кассы и POS аппарата
 
 SaaS de gestión interna para restaurantes: pedidos, mesas, cocina, inventario, reportes y caja.
 

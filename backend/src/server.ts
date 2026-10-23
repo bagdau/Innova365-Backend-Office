@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import { router } from './routes/index';
 import { errorHandler } from './middleware/error.middleware';
 import { UPLOAD_DIR } from './controllers/menu.controller';
+import { startDbNotify } from './dbnotify';
 
 dotenv.config();
 
@@ -32,6 +33,7 @@ app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`🚀 Innova365 backend corriendo en http://localhost:${PORT}`);
+  startDbNotify();
 });
 
 export default app;

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Innova365 — Настройки</title>
+  <link rel="stylesheet" href="ui.css">
+</head>
+<body>
+  <div class="top">
+    <div class="logo">I</div>
+    <div class="t"><b>Innova365</b><span id="subtitle">Настройки приложения</span></div>
+    <div class="spacer"></div>
+    <span class="small muted" id="ver"></span>
+  </div>
+
+  <!-- блокировка PIN-кодом -->
+  <div class="center lock hide" id="lock">
+    <div class="box card">
+      <h2>Настройки защищены PIN-кодом</h2>
+      <p class="muted" id="lockHint">Введите PIN-код, чтобы изменить настройки.</p>
+      <input type="password" id="pin" autocomplete="off" maxlength="16" autofocus>
+      <div class="actions" style="justify-content:center"><button class="btn" id="unlock">Открыть</button></div>
+      <div class="msg err" id="lockMsg"></div>
+    </div>
+  </div>
+
+  <!-- первый запуск -->
+  <div class="center hide" id="first">
+    <div class="box card">
+      <h2>Добро пожаловать в Innova365</h2>
+      <p class="muted">Укажите адрес вашей кассы. Его выдаёт администратор (например, <span class="mono">innova365.kz</span> или <span class="mono">192.168.1.10:8080</span>).</p>
+      <label class="l" for="f_server">Адрес кассы</label>
+      <input type="text" id="f_server" placeholder="innova365.kz" spellcheck="false">
+      <div class="msg" id="f_msg"></div>
+      <div class="actions"><button class="btn" id="f_go">Сохранить и запустить</button><button class="btn soft" id="f_check">Проверить адрес</button></div>
+      <p class="small muted" style="margin-top:14px">Остальное — печать, режим киоска, PIN — можно настроить позже: Ctrl+Shift+S или значок в трее.</p>
+    </div>
+  </div>
+
+  <div class="layout hide" id="app">
+    <nav class="tabs" id="tabs">
+      <button data-tab="connection" class="on">Подключение</button>
+      <button data-tab="print">Печать</button>
+      <button data-tab="window">Окно и запуск</button>
+      <button data-tab="security">Безопасность</button>
+      <button data-tab="about">О программе</button>
+    </nav>
+    <main>
+      <!-- Подключение -->
+      <section class="pane on" id="pane-connection">
+        <div class="card">
+          <h2 style="margin-bottom:12px">Адреса</h2>
+          <div class="row"><div class="f"><label class="l" for="serverUrl">Касса</label><input type="text" id="serverUrl" placeholder="https://innova365.kz" spellcheck="false"></div><button class="btn soft" data-check="serverUrl">Проверить</button></div>
+          <div class="msg" id="m_serverUrl"></div>
+          <div class="row"><div class="f"><label class="l" for="officeUrl">Office (необязательно)</label><input type="text" id="officeUrl" placeholder="https://office.innova365.kz" spellcheck="false"></div><button class="btn soft" data-check="officeUrl">Проверить</button></div>
+          <div class="msg" id="m_officeUrl"></div>
+          <p class="small muted">Office открывается отдельным окном из значка в трее. Сайты открываются только с этих адресов; любые другие ссылки уходят в обычный браузер.</p>
+          <div class="actions"><button class="btn" data-save="connection">Сохранить</button></div>
+          <div class="msg" id="m_connection"></div>
+        </div>
+      </section>
+
+      <!-- Печать -->
+      <section class="pane" id="pane-print">
+        <div class="card">
+          <div class="row" style="align-items:center"><h2>Агент печати</h2><span id="agentBadge" class="badge muted">…</span></div>
+          <p class="muted small">Встроенный агент принимает чеки от кассы и печатает их на принтер этого компьютера «родными» командами ESC/POS (USB, Windows-принтеры, сеть). Отдельный print-agent и ключи браузера больше не нужны.</p>
+          <label class="chk"><input type="checkbox" id="agent.enabled"><div><b>Агент включён</b><span>Касса в этом приложении печатает на принтер этого компьютера.</span></div></label>
+          <div class="row"><div class="f"><label class="l" for="agent.port">Порт</label><input type="number" id="agent.port" min="1024" max="65535"></div>
+            <div class="f"><label class="l">Токен доступа</label><input type="text" id="token" readonly class="mono"></div></div>
+          <label class="chk"><input type="checkbox" id="agent.lan"><div><b>Принимать запросы из локальной сети</b><span>Нужно, если сервер или другая касса печатает на принтер этого компьютера. Тогда доступ — только по токену; разрешите порт в брандмауэре Windows.</span></div></label>
+          <label class="l" for="agent.extraOrigins">Дополнительные адреса касс, которым разрешена печать</label>
+          <textarea id="agent.extraOrigins" placeholder="по одному адресу в строке" spellcheck="false"></textarea>
+          <p class="small muted">Адрес кассы из «Подключения» разрешён автоматически.</p>
+          <div class="actions"><button class="btn" data-save="agent">Сохранить</button><button class="btn soft" id="testAgent">Проверить агент</button><button class="btn soft" id="restartAgent">Перезапустить</button><button class="btn soft" id="newToken">Новый токен</button></div>
+          <div class="msg" id="m_agent"></div>
+        </div>
+
+        <div class="card">
+          <div class="row" style="align-items:center"><h2>Принтеры этого компьютера</h2><div class="spacer"></div><button class="btn soft" id="refreshPrinters">Обновить</button></div>
+          <table><thead><tr><th>Принтер</th><th>Порт</th><th>Признаки</th></tr></thead><tbody id="printers"><tr><td colspan="3" class="muted">Загрузка…</td></tr></tbody></table>
+          <div class="note hide" id="autoWarn"></div>
+          <p class="small muted" style="margin-top:8px">Строка с подсветкой — принтер, который агент выберет сам при настройке «Авто» (кассовый термопринтер, не PDF/XPS).</p>
+        </div>
+
+        <div class="card">
+          <h2 style="margin-bottom:12px">Пробная печать</h2>
+          <div class="row">
+            <div class="f"><label class="l" for="tp_printer">Принтер</label><select id="tp_printer"></select></div>
+            <div class="f" style="max-width:130px"><label class="l" for="tp_width">Ширина</label><select id="tp_width"><option value="80">80 мм</option><option value="58">58 мм</option></select></div>
+            <div class="f" style="max-width:150px"><label class="l" for="tp_cp">Кодировка</label><select id="tp_cp"><option value="cp866">CP866</option><option value="cp1251">CP1251</option><option value="ascii">Латиница</option></select></div>
+          </div>
+          <div class="row hide" id="tp_ip_row"><div class="f"><label class="l" for="tp_ip">Адрес сетевого принтера</label><input type="text" id="tp_ip" placeholder="192.168.1.50 или 192.168.1.50:9100" spellcheck="false"></div></div>
+          <div class="actions"><button class="btn" id="testPrint">Напечатать пробный чек</button></div>
+          <div class="msg" id="m_testPrint"></div>
+          <p class="small muted" style="margin-top:8px">Если вместо русских букв «кракозябры» — выберите другую кодировку (CP1251 или «Латиница»).</p>
+        </div>
+
+        <div class="card">
+          <h2 style="margin-bottom:8px">Документы без окна печати</h2>
+          <label class="chk"><input type="checkbox" id="print.silent"><div><b>Печатать документы сразу, без диалога</b><span>Касается документов, которые касса печатает через «окно браузера» (отчёты, A4). Чеки на термопринтер печатаются через агент и от этой настройки не зависят.</span></div></label>
+          <div class="row"><div class="f"><label class="l" for="print.deviceName">Принтер для таких документов</label><select id="print.deviceName"></select></div></div>
+          <div class="actions"><button class="btn" data-save="silent">Сохранить</button></div>
+          <div class="msg" id="m_silent"></div>
+        </div>
+      </section>
+
+      <!-- Окно и запуск -->
+      <section class="pane" id="pane-window">
+        <div class="card">
+          <h2 style="margin-bottom:8px">Окно</h2>
+          <label class="chk"><input type="checkbox" id="fullscreen"><div><b>Запускать на весь экран</b><span>F11 — переключить в любой момент.</span></div></label>
+          <label class="chk"><input type="checkbox" id="kiosk"><div><b>Режим киоска</b><span>Без рамки и заголовка, окно нельзя закрыть случайно. Чтобы выйти, понадобится PIN-код (задайте его на вкладке «Безопасность»), иначе выйти можно через значок в трее.</span></div></label>
+          <label class="chk"><input type="checkbox" id="closeToTray"><div><b>Крестик сворачивает в трей</b><span>Приложение и агент печати продолжают работать в фоне.</span></div></label>
+          <label class="chk"><input type="checkbox" id="autoStart"><div><b>Запускать вместе с Windows</b><span>Удобно для кассового компьютера.</span></div></label>
+          <div class="row"><div class="f"><label class="l" for="zoom">Масштаб страницы: <b id="zoomVal">100%</b></label><div class="range"><input type="range" id="zoom" min="0.5" max="2" step="0.1"></div><p class="small muted">Ctrl + плюс / минус / 0 — в окне кассы.</p></div></div>
+          <div class="actions"><button class="btn" data-save="window">Сохранить</button></div>
+          <div class="msg" id="m_window"></div>
+        </div>
+      </section>
+
+      <!-- Безопасность -->
+      <section class="pane" id="pane-security">
+        <div class="card">
+          <div class="row" style="align-items:center"><h2>PIN-код на настройки</h2><span id="pinBadge" class="badge muted">не задан</span></div>
+          <p class="muted small">Если PIN задан, настройки и выход из режима киоска доступны только после его ввода — кассир не изменит адрес сервера и не закроет кассу. PIN хранится только в виде хеша.</p>
+          <div class="row"><div class="f"><label class="l" for="newPin">Новый PIN (4–16 символов: цифры или латинские буквы)</label><input type="password" id="newPin" autocomplete="off" maxlength="16"></div>
+            <div class="f"><label class="l" for="newPin2">Повторите PIN</label><input type="password" id="newPin2" autocomplete="off" maxlength="16"></div></div>
+          <div class="actions"><button class="btn" id="setPin">Сохранить PIN</button><button class="btn soft hide" id="clearPin">Снять PIN</button></div>
+          <div class="msg" id="m_pin"></div>
+        </div>
+        <div class="card">
+          <h3>Как защищено приложение</h3>
+          <p class="small muted">Сайт кассы работает в изолированной среде без доступа к вашим файлам и системе. Открываются только адреса из «Подключения»; остальные ссылки — в обычном браузере. Сайту разрешены лишь уведомления, полный экран, буфер обмена на запись и WebUSB-принтер. Агент печати слушает только этот компьютер (127.0.0.1) и принимает запросы лишь со страниц разрешённых адресов.</p>
+        </div>
+      </section>
+
+      <!-- О программе -->
+      <section class="pane" id="pane-about">
+        <div class="card">
+          <h2 style="margin-bottom:10px">О программе</h2>
+          <table><tbody id="aboutTable"></tbody></table>
+          <div class="note hide" id="quitHint">Чтобы закрыть приложение, нажмите «Выйти из Innova365» ниже.</div>
+          <div class="actions" style="margin-top:12px"><button class="btn soft" id="openApp">Открыть кассу</button><button class="btn danger" id="quit">Выйти из Innova365</button></div>
+        </div>
+        <div class="card">
+          <div class="row" style="align-items:center"><h2>Журнал</h2><div class="spacer"></div><button class="btn soft" id="refreshLog">Обновить</button></div>
+          <pre class="log" id="logBox">…</pre>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="settings.js"></script>
+</body>
+</html>

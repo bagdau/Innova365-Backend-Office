@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Innova365 — нет связи</title>
+  <link rel="stylesheet" href="ui.css">
+</head>
+<body>
+  <div class="center">
+    <div class="box offline">
+      <div class="ico">!</div>
+      <h1>Нет связи с сервером</h1>
+      <p class="muted">Не удаётся открыть <b id="url" class="mono"></b></p>
+      <p class="small muted" id="why"></p>
+      <p id="status" class="muted"><span class="spin"></span>Повторная попытка через <b id="sec">5</b> с…</p>
+      <div class="actions" style="justify-content:center">
+        <button class="btn" id="retry">Повторить сейчас</button>
+        <button class="btn soft" id="settings">Настройки</button>
+      </div>
+      <p class="small muted" style="margin-top:22px">Проверьте интернет и адрес сервера. Печать чеков и остальные функции приложения продолжают работать.</p>
+    </div>
+  </div>
+  <script src="offline.js"></script>
+</body>
+</html>

@@ -16,7 +16,7 @@ import { t, apiError } from '../../i18n';
 import { useAuthStore } from '../../store/authStore';
 import { assignableRoles, canManageUser } from '../../auth/permissions';
 
-const TODOS_ROLES = ['SUPERADMIN', 'ADMIN', 'CAJERO', 'MESERO', 'COCINERO'];
+const TODOS_ROLES = ['SUPERADMIN', 'ADMIN', 'CAJERO', 'MESERO', 'COCINERO', 'REPARTIDOR'];
 
 export default function UsuariosPage() {
   const qc = useQueryClient();

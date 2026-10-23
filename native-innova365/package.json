@@ -1,0 +1,57 @@
+{
+  "name": "innova365-desktop",
+  "productName": "Innova365",
+  "version": "1.0.0",
+  "description": "Настольное приложение Innova365: касса, встроенная печать на чековые принтеры, режим киоска",
+  "main": "src/main.js",
+  "private": true,
+  "author": "Innova365",
+  "license": "UNLICENSED",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "electron .",
+    "typecheck": "tsc -p .",
+    "test": "node --test \"test/*.test.js\"",
+    "test:app": "electron test/app-smoke.js",
+    "test:ui": "electron test/app-smoke-ui.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win nsis",
+    "icon": "python build/make-icon.py"
+  },
+  "build": {
+    "appId": "kz.innova365.desktop",
+    "productName": "Innova365",
+    "artifactName": "Innova365-Setup-${version}.${ext}",
+    "directories": { "output": "dist" },
+    "files": [
+      "src/**/*",
+      "lib/**/*.js",
+      "frontend/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "lib/ps", "to": "ps", "filter": ["*.ps1"] }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Innova365",
+      "deleteAppDataOnUninstall": false
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "45.0.0",
+    "electron-builder": "^26.0.0",
+    "jsdom": "^30.1.3",
+    "typescript": "^7.0.2"
+  }
+}

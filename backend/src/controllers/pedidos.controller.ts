@@ -16,6 +16,7 @@ export async function getPedidos(req: Request, res: Response): Promise<void> {
   const where: any = { restauranteId: req.restauranteId! };
   if (estado) where.estado = estado;
   if (tipo) where.tipo = tipo;
+  if (req.user!.rol === 'REPARTIDOR') where.tipo = 'PARA_LLEVAR';
   if (fecha_inicio || fecha_fin) {
     where.creadoEn = {};
     if (fecha_inicio) where.creadoEn.gte = new Date(fecha_inicio as string);
@@ -46,6 +47,7 @@ export async function getPedidosActivos(req: Request, res: Response): Promise<vo
     where: {
       restauranteId: req.restauranteId!,
       estado: { notIn: ['PAGADO', 'CANCELADO'] },
+      ...(req.user!.rol === 'REPARTIDOR' ? { tipo: 'PARA_LLEVAR' as const } : {}),
     },
     orderBy: { creadoEn: 'asc' },
     include: {
@@ -138,7 +140,7 @@ export async function getPedidoById(req: Request, res: Response): Promise<void> 
       items: { include: { producto: true } },
     },
   });
-  if (!pedido) { res.status(404).json({ error: 'Pedido no encontrado' }); return; }
+  if (!pedido || (req.user!.rol === 'REPARTIDOR' && pedido.tipo !== 'PARA_LLEVAR')) { res.status(404).json({ error: 'Pedido no encontrado' }); return; }
   res.json(pedido);
 }
 
@@ -236,6 +238,8 @@ export async function updateEstadoPedido(req: Request, res: Response): Promise<v
     where: { id, restauranteId: req.restauranteId! },
   });
   if (!pedido) { res.status(404).json({ error: 'Pedido no encontrado' }); return; }
+  // Доставщик только отдаёт готовые заказы «с собой»; отменять и менять другие статусы не может
+  if (req.user!.rol === 'REPARTIDOR' && (estado !== 'ENTREGADO' || pedido.tipo !== 'PARA_LLEVAR')) throw new HttpError(403, 'Sin permisos para esta acción');
 
   // Validar transición: solo permitimos avanzar por la máquina de estados
   const permitidos = TRANSICIONES_VALIDAS[pedido.estado] ?? [];

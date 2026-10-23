@@ -1,12 +1,12 @@
 import type { Rol } from '../types';
 
 /**
- * Иерархия ролей:  SUPERADMIN («Владелец»)  >  ADMIN («Администратор»)  >  CAJERO / MESERO / COCINERO.
+ * Иерархия ролей:  SUPERADMIN («Владелец»)  >  ADMIN («Администратор»)  >  CAJERO / MESERO / COCINERO / REPARTIDOR.
  * Владелец и администратор открывают любой раздел и могут делать всё, что другие роли.
  * Только владелец: «Журнал действий» и управление учётными записями администраторов.
  * (Сервер проверяет каждую операцию заново: backend/src/routes/index.ts.)
  */
-const ALL: Rol[] = ['SUPERADMIN', 'ADMIN', 'MESERO', 'COCINERO', 'CAJERO'];
+const ALL: Rol[] = ['SUPERADMIN', 'ADMIN', 'MESERO', 'COCINERO', 'CAJERO', 'REPARTIDOR'];
 
 export const ROUTE_ROLES = {
   dashboard:     ['ADMIN', 'MESERO', 'CAJERO'],
@@ -14,6 +14,7 @@ export const ROUTE_ROLES = {
   pedidos:       ['ADMIN', 'MESERO', 'CAJERO', 'COCINERO'],
   pedidosNuevo:  ['ADMIN', 'MESERO', 'CAJERO'],
   cocina:        ['ADMIN', 'COCINERO'],
+  entregas:      ['ADMIN', 'REPARTIDOR'],
   mesero:        ['ADMIN', 'MESERO'],
   menu:          ['ADMIN'],
   inventario:    ['ADMIN'],
@@ -44,8 +45,8 @@ export function can(rol: Rol | undefined, route: RouteKey): boolean {
 
 /** Пантеон ролей, которые текущий пользователь может назначать при создании/редактировании сотрудников. */
 export function assignableRoles(actor: Rol | undefined): Rol[] {
-  if (actor === 'SUPERADMIN') return ['SUPERADMIN', 'ADMIN', 'CAJERO', 'MESERO', 'COCINERO'];
-  if (actor === 'ADMIN') return ['CAJERO', 'MESERO', 'COCINERO'];
+  if (actor === 'SUPERADMIN') return ['SUPERADMIN', 'ADMIN', 'CAJERO', 'MESERO', 'COCINERO', 'REPARTIDOR'];
+  if (actor === 'ADMIN') return ['CAJERO', 'MESERO', 'COCINERO', 'REPARTIDOR'];
   return [];
 }
 
@@ -61,6 +62,7 @@ export function homeFor(rol: Rol | undefined): string {
   switch (rol) {
     case 'COCINERO': return '/cocina';
     case 'CAJERO':   return '/caja';
+    case 'REPARTIDOR': return '/entregas';
     case undefined:  return '/login';
     default:         return '/dashboard';
   }

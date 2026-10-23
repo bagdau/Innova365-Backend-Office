@@ -51,7 +51,7 @@ export function useOrderSounds() {
         avisos.push({ sound: 'newOrder', rank: 4, icon: '🔔', msg: t('Nuevo pedido #{n} — {lugar}', { n: p.numero, lugar }) });
       } else if (p.estado === 'EN_PREPARACION' && sala) {
         avisos.push({ sound: 'orderPreparing', rank: 1, icon: '👨‍🍳', msg: t('Pedido #{n} ({lugar}) se está preparando', { n: p.numero, lugar }) });
-      } else if (p.estado === 'LISTO' && sala) {
+      } else if (p.estado === 'LISTO' && (sala || rol === 'REPARTIDOR')) {
         avisos.push({ sound: 'orderReady', rank: 3, icon: '✅', msg: t('Pedido #{n} ({lugar}) está listo', { n: p.numero, lugar }) });
       } else if (p.estado === 'ENTREGADO' && (rol === 'CAJERO' || isAdminLike(rol as Rol))) {
         avisos.push({ sound: 'payment', rank: 2, icon: '💳', msg: t('Pedido #{n} ({lugar}) espera el pago', { n: p.numero, lugar }) });

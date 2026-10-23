@@ -57,6 +57,8 @@ enum Rol {
   MESERO
   COCINERO
   CAJERO
+  /// Доставщик: видит заказы «с собой» и отмечает их доставленными
+  REPARTIDOR
 }
 
 model Mesa {
@@ -149,6 +151,7 @@ model Pedido {
 
   @@index([restauranteId, estado])
   @@index([restauranteId, creadoEn])
+  @@index([restauranteId, estado, actualizadoEn])
   @@index([mesaId])
   @@index([meseroId])
 }

@@ -1,4 +1,4 @@
-export type Rol = 'SUPERADMIN' | 'ADMIN' | 'MESERO' | 'COCINERO' | 'CAJERO';
+export type Rol = 'SUPERADMIN' | 'ADMIN' | 'MESERO' | 'COCINERO' | 'CAJERO' | 'REPARTIDOR';
 export type EstadoMesa = 'LIBRE' | 'OCUPADA' | 'EN_ESPERA';
 export type TipoPedido = 'EN_MESA' | 'PARA_LLEVAR';
 export type EstadoPedido = 'PENDIENTE' | 'EN_COCINA' | 'EN_PREPARACION' | 'LISTO' | 'ENTREGADO' | 'PAGADO' | 'CANCELADO';

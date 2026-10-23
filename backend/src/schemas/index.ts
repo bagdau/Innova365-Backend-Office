@@ -46,14 +46,14 @@ export const createUsuarioSchema = z.object({
   nombre:   z.string().min(2).max(80),
   email:    z.string().email().max(120),
   password: z.string().min(6).max(120),
-  rol:      z.enum(['SUPERADMIN', 'ADMIN', 'MESERO', 'COCINERO', 'CAJERO']),
+  rol:      z.enum(['SUPERADMIN', 'ADMIN', 'MESERO', 'COCINERO', 'CAJERO', 'REPARTIDOR']),
 });
 
 export const updateUsuarioSchema = z.object({
   nombre:   z.string().min(2).max(80).optional(),
   email:    z.string().email().max(120).optional(),
   password: z.string().min(6).max(120).optional(),
-  rol:      z.enum(['SUPERADMIN', 'ADMIN', 'MESERO', 'COCINERO', 'CAJERO']).optional(),
+  rol:      z.enum(['SUPERADMIN', 'ADMIN', 'MESERO', 'COCINERO', 'CAJERO', 'REPARTIDOR']).optional(),
   activo:   z.boolean().optional(),
 });
 

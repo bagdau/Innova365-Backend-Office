@@ -61,6 +61,7 @@ export function eventsHandler(req: Request, res: Response): void {
   });
   res.flushHeaders();
   res.write('retry: 3000\n\n');
+  res.write(`: ${' '.repeat(2048)}\n\n`);   // «разгон» для прокси, которые копят первые килобайты ответа в буфере
   res.write(`event: ready\ndata: {}\n\n`);
 
   const rid = req.restauranteId!;

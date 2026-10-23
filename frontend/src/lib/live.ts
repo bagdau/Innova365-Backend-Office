@@ -6,5 +6,5 @@ let live = false;
 export const setLive = (v: boolean) => { live = v; };
 export const isLive = () => live;
 
-/** refetchInterval для живых данных (заказы, столы): 30 с при работающем SSE, 3 с без него. */
-export const liveInterval = () => (live ? 30_000 : 3_000);
+/** refetchInterval для живых данных (заказы, столы): 15 с страховки при работающем SSE, 1 с без него — реакция остаётся мгновенной. */
+export const liveInterval = () => (live ? 15_000 : 1_000);

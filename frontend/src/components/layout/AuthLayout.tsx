@@ -15,6 +15,7 @@ const pageTitles: Record<string, string> = {
   '/pedidos':      t('Pedidos'),
   '/pedidos/nuevo':t('Nuevo Pedido'),
   '/cocina':       t('Vista Cocina'),
+  '/entregas':     t('Entregas'),
   '/menu':         t('Gestión de Menú'),
   '/inventario':   t('Inventario'),
   '/reportes':     t('Reportes'),

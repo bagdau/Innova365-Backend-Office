@@ -37,13 +37,14 @@ export function rolColor(rol: string): string {
     case 'MESERO': return 'text-info bg-info-bg';
     case 'COCINERO': return 'text-warning bg-warning-bg';
     case 'CAJERO': return 'text-success bg-success-bg';
+    case 'REPARTIDOR': return 'text-error bg-error-bg';
     default: return 'text-muted-foreground bg-muted';
   }
 }
 
 export function rolLabel(rol: string): string {
   const map: Record<string, string> = {
-    SUPERADMIN: t('Propietario'), ADMIN: t('Admin'), MESERO: t('Mesero'), COCINERO: t('Cocinero'), CAJERO: t('Cajero'),
+    SUPERADMIN: t('Propietario'), ADMIN: t('Admin'), MESERO: t('Mesero'), COCINERO: t('Cocinero'), CAJERO: t('Cajero'), REPARTIDOR: t('Repartidor'),
   };
   return map[rol] ?? rol;
 }

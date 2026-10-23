@@ -1,8 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Grid2X2, ClipboardList, ChefHat, Utensils,
-  Package, BarChart2, Users, Settings, LogOut, X, Wallet, Activity, ScrollText,
-} from 'lucide-react';
+  Package, BarChart2, Users, Settings, LogOut, X, Wallet, Activity, ScrollText, Bike } from 'lucide-react';
 import { cn, getInitials, rolLabel } from '../../utils/cn';
 import { useAuthStore } from '../../store/authStore';
 import { useUiStore } from '../../store/uiStore';
@@ -20,6 +19,7 @@ const navItems: Array<{ to: string; icon: typeof LayoutDashboard; label: string;
   { to: '/pedidos',       icon: ClipboardList,   label: t('Pedidos'),        route: 'pedidos' },
   { to: '/caja',          icon: Wallet,          label: t('Caja'),           route: 'caja' },
   { to: '/cocina',        icon: ChefHat,         label: t('Cocina'),         route: 'cocina' },
+  { to: '/entregas',      icon: Bike,            label: t('Entregas'),       route: 'entregas' },
   { to: '/menu',          icon: Utensils,        label: t('Menú'),           route: 'menu' },
   { to: '/inventario',    icon: Package,         label: t('Inventario'),     route: 'inventario' },
   { to: '/reportes',      icon: BarChart2,       label: t('Reportes'),       route: 'reportes' },

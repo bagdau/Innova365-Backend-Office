@@ -10,6 +10,7 @@ import { can, homeFor, type RouteKey } from './auth/permissions';
 import LoginPage from './pages/auth/LoginPage';
 const DashboardPage = lazy(() => import('./pages/dashboard/DashboardPage'));
 const MesasPage = lazy(() => import('./pages/mesas/MesasPage'));
+const EntregasPage = lazy(() => import('./pages/entregas/EntregasPage'));
 const NuevoPedidoPage = lazy(() => import('./pages/pedidos/NuevoPedidoPage'));
 const HistorialPage = lazy(() => import('./pages/pedidos/HistorialPage'));
 const CocinaPage = lazy(() => import('./pages/cocina/CocinaPage'));
@@ -85,6 +86,11 @@ export default function App() {
         <Route path="/dashboard" element={
           <ProtectedRoute route="dashboard">
             <DashboardPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/entregas" element={
+          <ProtectedRoute route="entregas">
+            <EntregasPage />
           </ProtectedRoute>
         } />
         <Route path="/mesas" element={

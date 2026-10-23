@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Innova Office: «бумажная» светлая тема для учёта, тёмная — по переключателю ── */
+:root {
+  color-scheme: light;
+  --bg: 243 245 250; --surface: 255 255 255; --surface2: 241 244 250; --line: 225 230 241;
+  --ink: 15 23 42; --muted: 100 116 139;
+  --brand: 79 70 229; --brandfg: 255 255 255;
+  --good: 5 150 105; --bad: 220 38 38; --warn: 202 138 4; --info: 2 132 199;
+  --side: 15 23 42;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: 10 14 25; --surface: 17 24 39; --surface2: 24 33 52; --line: 38 50 74;
+  --ink: 230 234 246; --muted: 142 155 182;
+  --brand: 129 140 248; --brandfg: 15 23 42;
+  --good: 52 211 153; --bad: 248 113 113; --warn: 251 191 36; --info: 56 189 248;
+  --side: 7 11 20;
+}
+
+html, body, #root { height: 100%; }
+body { margin: 0; background: rgb(var(--bg)); color: rgb(var(--ink)); font-family: Inter, ui-sans-serif, system-ui, 'Segoe UI', Roboto, sans-serif; font-size: 14px; -webkit-font-smoothing: antialiased; }
+* { scrollbar-width: thin; scrollbar-color: rgb(var(--line)) transparent; }
+::selection { background: rgb(var(--brand) / .25); }
+.tnum { font-variant-numeric: tabular-nums; }
+
+@layer components {
+  .btn { @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 h-9 text-sm font-medium transition select-none whitespace-nowrap disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50; }
+  .btn-primary { @apply bg-brand text-brandfg hover:brightness-110 active:brightness-95 shadow-sm; }
+  .btn-soft { @apply bg-surface text-ink border border-line hover:bg-surface2; }
+  .btn-ghost { @apply text-muted hover:text-ink hover:bg-surface2; }
+  .btn-danger { @apply bg-bad/10 text-bad border border-bad/25 hover:bg-bad/15; }
+  .btn-good { @apply bg-good text-white hover:brightness-110; }
+  .btn-sm { @apply h-8 px-2.5 text-[13px]; }
+  .input { @apply h-9 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink placeholder:text-muted/70 focus:outline-none focus:border-brand/70 focus:ring-2 focus:ring-brand/15 transition disabled:bg-surface2 disabled:text-muted; }
+  textarea.input { @apply h-auto py-2 leading-relaxed; }
+  .card { @apply rounded-xl border border-line bg-surface shadow-[0_1px_2px_rgba(15,23,42,.04)]; }
+  .label { @apply mb-1 block text-xs font-medium text-muted; }
+  .chip { @apply inline-flex items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-0.5 text-[11px] font-semibold; }
+  .th { @apply px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted bg-surface2/70 border-b border-line whitespace-nowrap; }
+  .td { @apply px-3 py-2.5 border-b border-line/70 align-middle; }
+}
+
+@media print {
+  html, body { background: #fff !important; color: #000 !important; }
+  /* длинные таблицы печатаются целиком: прокручиваемые области разворачиваются */
+  html, body, #root { height: auto !important; }
+  #root, #root * { overflow: visible !important; max-height: none !important; }
+  .flex.h-full { display: block !important; height: auto !important; }
+  main { height: auto !important; }
+  .no-print { display: none !important; }
+  .print-page { box-shadow: none !important; border: 0 !important; margin: 0 !important; }
+  @page { size: A4; margin: 14mm; }
+}

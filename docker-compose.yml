@@ -69,6 +69,27 @@ services:
     ports:
       - "${DBADMIN_BIND:-0.0.0.0}:8200:8200"
 
+  # Innova Office — бэкенд-офис (фудкорт, техкарты, технологи, бухгалтерия) для домена office.innova365.kz.
+  # Своя схема office в ТОЙ ЖЕ базе PostgreSQL; публикуется на localhost, наружу — через системный nginx (HTTPS).
+  office:
+    build: ./office
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-restaurantos}:${POSTGRES_PASSWORD:-restaurantos}@db:5432/${POSTGRES_DB:-restaurantos}
+      TZ: ${TZ:-Asia/Almaty}
+      OFFICE_JWT_SECRET: ${OFFICE_JWT_SECRET:-}
+      TELEGRAM_API: ${TELEGRAM_API:-}
+      SMTP_INSECURE_TLS: ${SMTP_INSECURE_TLS:-}
+    volumes:
+      - office_data:/data
+    ports:
+      - "${OFFICE_BIND:-127.0.0.1}:8300:8300"
+
   # Разовая загрузка тестовых данных: docker compose --profile seed run --rm seed
   seed:
     build: ./backend
@@ -84,3 +105,4 @@ services:
 volumes:
   pgdata:
   uploads:
+  office_data:

@@ -15,6 +15,11 @@ export function emitirCambio(restauranteId: string, canales: Canal[]) {
   bus.emit(restauranteId, canales);
 }
 
+/** Событие для всех ресторанов, у которых есть подключённые экраны (когда в уведомлении БД нет restauranteId). */
+export function emitirATodos(canales: Canal[]) {
+  for (const k of bus.eventNames()) if (typeof k === 'string') bus.emit(k, canales);
+}
+
 export function suscribir(restauranteId: string, fn: (c: Canal[]) => void): () => void {
   bus.on(restauranteId, fn);
   return () => bus.off(restauranteId, fn);

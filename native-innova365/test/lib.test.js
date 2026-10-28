@@ -164,6 +164,20 @@ test('printers: оценка и выбор', () => {
   assert.ok(!looksLikeReceipt(null));
 });
 
+test('printers: очереди с произвольными именами узнаются по драйверу (заведение Meyiz)', () => {
+  const list = [
+    { name: 'samsa', port: '192.168.123.87', driver: 'XP-80C' },
+    { name: 'kuhnya', port: '192.168.123.89', driver: 'XP-80C' },
+    { name: 'bar', port: '192.168.123.88', driver: 'XP-80C' },
+    { name: 'check', port: 'USB001', driver: '80Normal', isDefault: true },
+    { name: 'OneNote for Windows 10', port: 'Microsoft.Office.OneNote', driver: 'Microsoft Software Printer Driver' },
+  ].map(classify);
+  assert.ok(list.slice(0, 4).every((p) => p.thermal && looksLikeReceipt(p)));
+  assert.ok(!looksLikeReceipt(list[4]));
+  assert.equal(pickBest(list).name, 'check', 'USB-очередь по умолчанию выбирается для чека');
+  assert.ok(!looksLikeReceipt(classify({ name: 'Office', port: 'USB002', driver: 'HP LaserJet MFP M129' })));
+});
+
 test('config: activation binds fixed URL and keeps token out of UI', () => {
   const f = path.join(tmp(), 'config.json'); const c = new Config(f);
   c.activate('a'.repeat(64), { id: 'aisultan', name: 'Aisultan' });

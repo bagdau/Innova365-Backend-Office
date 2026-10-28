@@ -125,7 +125,8 @@ function Test-Origin($o) { return ($o -match '^https?://(localhost|127\.0\.0\.1)
 function Get-PrinterItems {
   @(Get-CimInstance Win32_Printer | ForEach-Object {
     $usb = ($_.PortName -match '^(USB|DOT4|COM|LPT)')
-    $thermal = ($_.Name -match '(?i)(pos|xprinter|xp-|receipt|thermal|tm-|rp-?\d|bixolon|star|citizen|sam4s|rongta|gprinter|zjiang|\b(58|80)\s?mm)')
+    $thermalRe = '(?i)(pos|xprinter|xp-|receipt|thermal|tm-|rp-?\d|bixolon|star|citizen|sam4s|rongta|gprinter|zjiang|\b(58|80)\s?mm|\b(58|80)\s?(normal|series|printer))'
+    $thermal = (($_.Name -match $thermalRe) -or ($_.DriverName -match $thermalRe))
     $virtual = ($_.Name -match '(?i)(pdf|xps|onenote|fax|microsoft|anydesk|virtual|send to)')
     $score = 0; if ($thermal) { $score += 4 }; if ($usb -or $_.PortName -match '^(IP_|\d+\.)') { $score += 2 }; if ($_.Default) { $score += 1 }; if ($virtual) { $score -= 10 }; if ($_.WorkOffline) { $score -= 20 }
     [ordered]@{ name = $_.Name; port = $_.PortName; driver = $_.DriverName; isDefault = [bool]$_.Default; offline = [bool]$_.WorkOffline; usb = [bool]$usb; thermal = [bool]$thermal; score = $score } })

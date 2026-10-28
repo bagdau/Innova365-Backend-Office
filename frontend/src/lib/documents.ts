@@ -141,13 +141,14 @@ export async function receiptHtml(p: Pedido, r: RestauranteInfo | undefined, kin
     <div class="center bold" style="font-size:14px">${esc(kind === 'recibo' ? settings.title : t('Cuenta'))} №${p.numero}</div>
     <div class="receipt-meta"><div>${printLang === 'en' ? 'Date and time' : 'Дата и время'}: ${esc(fmtDateTime(receiptDate))}</div>
     <div>${esc(p.mesa ? t('Mesa {n}', { n: p.mesa.numero }) : t('Para llevar'))}</div>
+    ${p.mesero?.rol === 'MESERO' && p.mesero.nombre ? `<div>${printLang === 'en' ? 'Waiter' : 'Официант'}: ${esc(p.mesero.nombre)}</div>` : ''}
     ${kind === 'recibo' && settings.showCashier && p.cajeroNombre ? `<div>${esc(cashierRole)}: ${esc(p.cajeroNombre)}</div>` : ''}</div>
     <div style="height:5px"></div>
     <table class="rc">
       <thead><tr><th>${printLang === 'en' ? 'Name' : 'Наименование'}</th><th class="right">${printLang === 'en' ? 'Qty' : 'Кол-во'}</th><th class="right col-price">${esc(t('Precio'))}</th><th class="right">${esc(t('Suma'))}</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <table style="margin-top:6px">${Number(p.servicePercent ?? 0) > 0 ? `<tr><td style="border:0">${printLang === 'en' ? 'Items' : 'Блюда'}</td><td class="right" style="border:0">${fmtMoney(total - Number(p.serviceAmount ?? 0))}</td></tr><tr><td style="border:0">${printLang === 'en' ? 'Service' : 'Обслуживание'} ${Number(p.servicePercent)}%</td><td class="right" style="border:0">${fmtMoney(Number(p.serviceAmount ?? 0))}</td></tr>` : ''}<tr><td class="bold" style="font-size:15px;border:0">${esc(kind === 'recibo' ? t('TOTAL') : t('A pagar'))}</td><td class="right bold" style="font-size:15px;border:0">${fmtMoney(total)}</td></tr>
+    <table style="margin-top:6px">${Number(p.servicePercent ?? 0) > 0 ? `<tr><td style="border:0">${printLang === 'en' ? 'Items' : 'Блюда'}</td><td class="right" style="border:0">${fmtMoney(total - Number(p.serviceAmount ?? 0))}</td></tr><tr><td style="border:0">${printLang === 'en' ? 'Service charge' : 'Обслуживание'} ${Number(p.servicePercent)}%${p.mesero?.rol === 'MESERO' ? (printLang === 'en' ? ' (waiter)' : ' (официант)') : ''}</td><td class="right" style="border:0">${fmtMoney(Number(p.serviceAmount ?? 0))}</td></tr>` : ''}<tr><td class="bold" style="font-size:15px;border:0">${esc(kind === 'recibo' ? t('TOTAL') : t('A pagar'))}</td><td class="right bold" style="font-size:15px;border:0">${fmtMoney(total)}</td></tr>
     ${kind === 'recibo' && p.metodoPago ? `<tr><td style="border:0">${esc(t('Método de pago'))}</td><td class="right" style="border:0">${esc(payLabel(p.metodoPago))}</td></tr>` : ''}</table>
     <hr style="${ruleCss}"/>
     ${qrSvg ? `<div class="qr">${qrSvg}</div>` : ''}

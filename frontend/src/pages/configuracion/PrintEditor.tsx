@@ -20,7 +20,7 @@ function sampleOrder(): Pedido {
     restauranteId: 'preview', items: [
       { id: '1', productoId: '1', producto: { nombre: 'Баурсаки (порция)' }, cantidad: 1, precio: 600, subtotal: 600, servido: true },
       { id: '2', productoId: '2', producto: { nombre: 'Айран' }, cantidad: 1, precio: 500, subtotal: 500, servido: true },
-    ], pagado: true, metodoPago: 'QR', cajeroNombre: 'Кассир', cajeroRol: 'CAJERO', total: 1100,
+    ], pagado: true, metodoPago: 'QR', cajeroNombre: 'Кассир', cajeroRol: 'CAJERO', mesero: { nombre: 'Айгерим', rol: 'MESERO' }, servicePercent: 10, serviceAmount: 110, total: 1210,
     creadoEn: now, actualizadoEn: now,
   };
 }

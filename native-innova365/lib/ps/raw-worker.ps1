@@ -79,6 +79,16 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
         })
         Reply $req.id $true $items $null
       }
+      'status' {
+        $n = [string]$req.printer
+        $p = Get-CimInstance Win32_Printer | Where-Object { $_.Name -eq $n } | Select-Object -First 1
+        if (-not $p) { Reply $req.id $false $null ('printer not found: ' + $n); break }
+        $jobs = @(Get-CimInstance Win32_PrintJob | Where-Object { $_.Name -like ($n + ',*') })
+        $bad = @($jobs | Where-Object { $_.JobStatus -match 'Error|Offline|Paper|Blocked' -or $_.StatusMask -band 0x1 })
+        $err = [int]$p.DetectedErrorState
+        $o = [ordered]@{ printerStatus = [int]$p.PrinterStatus; errorState = $err; workOffline = [bool]$p.WorkOffline; jobs = $jobs.Count; stuckJobs = $bad.Count }
+        Reply $req.id $true $o $null
+      }
       'print' {
         $bytes = [System.IO.File]::ReadAllBytes($req.file)
         [RawPrint]::Send([string]$req.printer, $bytes)

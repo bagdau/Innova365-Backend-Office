@@ -15,6 +15,8 @@ const { SERVICE_URL } = require('../lib/activation');
 const { Config } = require('../lib/config');
 const { RawPrinter } = require('../lib/rawprint');
 const { createAgent } = require('../lib/agent');
+const { PrintRouter } = require('../lib/print-router');
+const { PrintQueue } = require('../lib/print-queue');
 const { createLogger } = require('../lib/log');
 const { originOf } = require('../lib/url');
 const { resolvePaths } = require('./paths');
@@ -56,9 +58,11 @@ function start() {
     agent: null, localUi: null, localEngine: null, requestQuit: null, onSettingsChanged: null,
   });
 
+  const router = new PrintRouter({ printer, log });
+  const printQueue = new PrintQueue({ dir: path.join(app.getPath('userData'), 'print-queue'), router, log });
   ctx.agent = createAgent({
     version: app.getVersion(),
-    printer, log,
+    printer, log, router, queue: printQueue,
     getSettings: () => {
       const c = config.get();
       const origins = [originOf(c.serverUrl), originOf(c.officeUrl), ctx.localUi?.url, ...c.agent.extraOrigins, ...ctx.redirectOrigins].filter(Boolean);
@@ -129,6 +133,7 @@ function start() {
       log(`[local-ui] касса запущена на ${ctx.localUi.url}`);
     }
     if (config.get().agent.enabled) await ctx.agent.start();
+    printQueue.start();
     tray.refresh();
     try { app.setLoginItemSettings({ openAtLogin: config.get().autoStart }); } catch { /* не везде поддерживается */ }
 
@@ -140,7 +145,7 @@ function start() {
     app.on('activate', () => { if (ctx.localEngine || config.hasActivation()) win.showMain(); else win.openSettings({ first: true }); });
     app.on('window-all-closed', () => { if (!config.get().closeToTray || ctx.quitting) app.quit(); });
     app.on('before-quit', () => { ctx.quitting = true; });
-    app.on('will-quit', () => { void ctx.agent.stop(); void ctx.localUi?.close(); ctx.localEngine?.stop(); printer.close(); tray?.destroy(); log('[app] выход'); });
+    app.on('will-quit', () => { printQueue.stop(); void ctx.agent.stop(); void ctx.localUi?.close(); ctx.localEngine?.stop(); printer.close(); tray?.destroy(); log('[app] выход'); });
     if (process.argv.includes('--smoke-offline')) {
       try {
         if (!ctx.localEngine || !ctx.localUi) throw new Error('Офлайн-компоненты не запущены');

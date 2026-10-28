@@ -21,7 +21,7 @@ function fakePrinter(list = []) {
   };
 }
 
-const PRINTERS = [{ name: 'Microsoft Print to PDF', port: 'PORTPROMPT:', isDefault: true }, { name: 'XP-80C', port: 'USB001' }];
+const PRINTERS = [{ name: 'Microsoft Print to PDF', port: 'PORTPROMPT:', isDefault: true }, { name: 'XP-80C', port: 'USB001' }, { name: 'Мой принтер', port: 'USB002' }, { name: 'BROKEN', port: 'USB003' }];
 let settings;
 
 /** Поднимает сервер на свободном порту и возвращает его вместе с номером порта. */
@@ -81,7 +81,7 @@ test('agent: доступ — по источнику или по токену, 
   assert.equal((await call(port, 'GET', '/printers', { headers: { 'X-Token': 'wrong' } })).status, 401);
   assert.equal((await call(port, 'GET', '/printers', { headers: { 'X-Token': '' } })).status, 401);
   const byOrigin = await call(port, 'GET', '/printers', { headers: ORIGIN });
-  assert.equal(byOrigin.status, 200); assert.equal(byOrigin.json.length, 2);
+  assert.equal(byOrigin.status, 200); assert.equal(byOrigin.json.length, 4);
   assert.equal((await call(port, 'GET', '/printers', { headers: TOKEN() })).status, 200);
   assert.equal((await call(port, 'POST', '/print?printer=auto', { body: Buffer.from('x') })).status, 401);
   await agent.stop();
@@ -105,7 +105,7 @@ test('agent: ошибки печати и валидация', async () => {
   const { agent, port } = await boot();
   const bytes = Buffer.from('x');
   const e1 = await call(port, 'POST', '/print?printer=BROKEN', { headers: ORIGIN, body: bytes });
-  assert.equal(e1.status, 500); assert.match(e1.json.error, /BROKEN/);
+  assert.equal(e1.status, 502); assert.match(e1.json.error, /BROKEN/); assert.equal(e1.json.attempts.length, 2, 'вторая попытка через спулер');
   assert.equal((await call(port, 'POST', '/print?printer=auto', { headers: ORIGIN })).status, 400, 'пустое тело');
   assert.equal((await call(port, 'POST', '/print?printer=' + encodeURIComponent('a\u0001b'), { headers: ORIGIN, body: bytes })).status, 400);
   assert.equal((await call(port, 'POST', '/print?printer=' + 'x'.repeat(300), { headers: ORIGIN, body: bytes })).status, 400);

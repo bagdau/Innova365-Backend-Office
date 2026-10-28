@@ -12,7 +12,7 @@ import { ArrowLeft, ShoppingCart, Plus, Minus, CheckCircle, Utensils, Grid2X2 } 
 import { mesasService } from '../../services/mesas.service';
 import { menuService } from '../../services/menu.service';
 import { pedidosService } from '../../services/pedidos.service';
-import type { Mesa, Producto, Categoria } from '../../types';
+import type { Mesa, Producto, Categoria, Pedido } from '../../types';
 import { cn, formatCurrency } from '../../utils/cn';
 import toast from 'react-hot-toast';
 import { t } from '../../i18n';
@@ -21,10 +21,13 @@ import { QuickSettings } from '../../components/shared/QuickSettings';
 import { SearchInput } from '../../components/shared/SearchInput';
 import { Highlight } from '../../components/shared/Highlight';
 import { useProductSearch } from '../../search/useSearch';
+import { useAuthStore } from '../../store/authStore';
+import { serviceCharge, addedServiceCharge } from '../../lib/serviceCharge';
 
 type Step = 'mesas' | 'menu' | 'confirmar';
 
 export default function MeseroPage() {
+  const currentUser = useAuthStore((state) => state.user);
   const qc = useQueryClient();
   const navigate = useNavigate();
   useRealtime(); // recibir notificación cuando cocina marca pedido como listo
@@ -33,7 +36,7 @@ export default function MeseroPage() {
   const [catFiltro, setCatFiltro] = useState('todas');
   const [search, setSearch] = useState('');
   const [carrito, setCarrito]   = useState<Record<string, number>>({});
-  const [success, setSuccess]   = useState(false);
+  const [success, setSuccess]   = useState<string | null>(null);
 
   const { data: mesas = [] } = useQuery<Mesa[]>({
     queryKey: ['mesas'],
@@ -57,12 +60,12 @@ export default function MeseroPage() {
       mesaId: mesaSel!.id,
       items: Object.entries(carrito).map(([productoId, cantidad]) => ({ productoId, cantidad })),
     }),
-    onSuccess: () => {
+    onSuccess: (pedido: Pedido) => {
       qc.invalidateQueries({ queryKey: ['mesas'] });
       qc.invalidateQueries({ queryKey: ['pedidosActivos'] });
-      setSuccess(true);
+      setSuccess(pedido.estado === 'LISTO' ? t('Pedido listo para entregar') : t('¡Pedido enviado a cocina!'));
       setTimeout(() => {
-        setSuccess(false);
+        setSuccess(null);
         setStep('mesas');
         setMesaSel(null);
         setCarrito({});
@@ -79,15 +82,25 @@ export default function MeseroPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['mesas'] });
       qc.invalidateQueries({ queryKey: ['pedidosActivos'] });
-      setSuccess(true);
+      setSuccess(requiereCocina ? t('¡Pedido enviado a cocina!') : t('Productos añadidos al pedido'));
       setTimeout(() => {
-        setSuccess(false);
+        setSuccess(null);
         setStep('mesas');
         setMesaSel(null);
         setCarrito({});
       }, 2000);
     },
     onError: () => toast.error(t('Error al añadir productos')),
+  });
+
+  const entregarPedido = useMutation({
+    mutationFn: (pedidoId: string) => pedidosService.updateEstado(pedidoId, 'ENTREGADO'),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['mesas'] });
+      void qc.invalidateQueries({ queryKey: ['pedidosActivos'] });
+      toast.success(t('Pedido entregado al cliente'));
+    },
+    onError: () => toast.error(t('Error al entregar pedido')),
   });
 
   const cambiarCantidad = (id: string, delta: number) => {
@@ -104,13 +117,19 @@ export default function MeseroPage() {
     const p = productos.find((x) => x.id === id);
     return sum + (p ? Number(p.precio) * qty : 0);
   }, 0);
+  const existingOrder = mesaSel?.pedidoActivo;
+  const percent = existingOrder ? Number(existingOrder.servicePercent ?? 0) : currentUser?.rol === 'MESERO' ? Number(currentUser.waiterPercent ?? 0) : 0;
+  const charge = existingOrder ? addedServiceCharge(existingOrder, totalPrecio) : serviceCharge(totalPrecio, percent);
+  const totalWithService = totalPrecio + charge;
+  const requiereCocina = Object.keys(carrito).some((id) => productos.find((p) => p.id === id)?.requiereCocina);
 
   const filtroProd = useCallback((p: Producto) => p.disponible && (catFiltro === 'todas' || p.categoriaId === catFiltro), [catFiltro]);
   const found = useProductSearch(productos, search, filtroProd);
   const prodVisibles = found.items;
 
   const mesasLibres   = mesas.filter((m) => m.estado === 'LIBRE');
-  const mesasOcupadas = mesas.filter((m) => m.estado !== 'LIBRE');
+  const mesasOcupadas = mesas.filter((m) => m.estado !== 'LIBRE' && !!m.pedidoActivo);
+  const mesasEnEspera = mesas.filter((m) => m.estado !== 'LIBRE' && !m.pedidoActivo);
 
   // ── Pantalla de éxito ────────────────────────────────────────────────
   if (success) {
@@ -119,7 +138,7 @@ export default function MeseroPage() {
         <div className="w-20 h-20 rounded-full bg-success/20 flex items-center justify-center">
           <CheckCircle size={48} className="text-success" />
         </div>
-        <p className="text-xl font-bold text-foreground text-center">{t('¡Pedido enviado a cocina!')}</p>
+        <p className="text-xl font-bold text-foreground text-center">{success}</p>
         <p className="text-muted-foreground text-center">{t('Mesa')} {mesaSel?.numero}</p>
       </div>
     );
@@ -131,7 +150,7 @@ export default function MeseroPage() {
       <div className="min-h-[100dvh] bg-background flex flex-col">
         <header className="sticky top-0 bg-sidebar-bg border-b border-border px-4 py-3 flex items-center gap-3 z-10">
           <Logo size={26} className="flex-1 min-w-0" />
-          <span className="hidden sm:inline text-muted-foreground text-sm">{t('Mesero')}</span>
+          <span className="hidden sm:inline text-muted-foreground text-sm">{t('Trabajo en sala')}</span>
           <QuickSettings />
           <button
             onClick={() => navigate('/mesas')}
@@ -149,7 +168,7 @@ export default function MeseroPage() {
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                 {t('Mesas libres ({n})', { n: mesasLibres.length })}
               </h2>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {mesasLibres.map((mesa) => (
                   <button
                     key={mesa.id}
@@ -165,26 +184,52 @@ export default function MeseroPage() {
             </section>
           )}
 
-          {/* Mesas ocupadas (para añadir) */}
+          {/* Заказы у столов: видно состояние и отдельное действие выдачи. */}
           {mesasOcupadas.length > 0 && (
             <section>
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                {t('Mesas ocupadas — añadir productos')}
+                {t('Mesas ocupadas')}
               </h2>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {mesasOcupadas.map((mesa) => (
-                  <button
-                    key={mesa.id}
-                    onClick={() => { setMesaSel(mesa); setCarrito({}); setStep('menu'); }}
-                    className="bg-card border-2 border-error/40 rounded-2xl p-4 flex flex-col items-center gap-1 active:scale-95 transition-transform"
-                  >
-                    <span className="text-2xl font-black text-foreground">{mesa.numero}</span>
-                    <span className="text-xs text-muted-foreground">{mesa.capacidad} 👤</span>
-                    <span className={cn('text-xs font-semibold mt-1',
-                      mesa.estado === 'OCUPADA' ? 'text-error' : 'text-warning')}>
-                      {mesa.estado === 'OCUPADA' ? 'OCUPADA' : 'EN ESPERA'}
-                    </span>
-                  </button>
+                  <div key={mesa.id} className="bg-card border-2 border-error/40 rounded-2xl p-3 flex flex-col gap-2">
+                    <div className="text-center">
+                      <p className="text-2xl font-black text-foreground">{mesa.numero}</p>
+                      <p className="text-xs text-muted-foreground">{mesa.capacidad} 👤 · №{mesa.pedidoActivo?.numero}</p>
+                      <p className="text-xs font-semibold text-primary mt-1">
+                        {mesa.pedidoActivo?.estado === 'LISTO' ? t('✓ Listo para servir')
+                          : mesa.pedidoActivo?.estado === 'ENTREGADO' ? t('Entregado — esperando pago')
+                          : mesa.pedidoActivo?.estado === 'EN_PREPARACION' ? t('Pedido en preparación')
+                          : t('Pedido en cocina')}
+                      </p>
+                      {mesa.pedidoActivo?.mesero?.nombre && (
+                        <p className="text-xs text-muted-foreground mt-1">{t('Pedido registrado por')}: {mesa.pedidoActivo.mesero.nombre}</p>
+                      )}
+                    </div>
+                    {mesa.pedidoActivo?.estado === 'LISTO' && (
+                      <button disabled={entregarPedido.isPending} onClick={() => entregarPedido.mutate(mesa.pedidoActivo!.id)}
+                        className="w-full rounded-lg bg-success text-white px-2 py-2 text-sm font-semibold disabled:opacity-50">
+                        {t('Entregar al cliente')}
+                      </button>
+                    )}
+                    <button onClick={() => { setMesaSel(mesa); setCarrito({}); setStep('menu'); }}
+                      className="w-full rounded-lg bg-muted text-foreground px-2 py-2 text-xs font-medium">
+                      {t('Añadir productos')}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+          {mesasEnEspera.length > 0 && (
+            <section>
+              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">{t('Mesas no disponibles')}</h2>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {mesasEnEspera.map((mesa) => (
+                  <div key={mesa.id} className="bg-card border border-warning/50 rounded-2xl p-4 text-center">
+                    <p className="text-2xl font-black text-foreground">{mesa.numero}</p>
+                    <p className="text-xs text-warning font-semibold">{t('Sin pedido activo')}</p>
+                  </div>
                 ))}
               </div>
             </section>
@@ -215,14 +260,14 @@ export default function MeseroPage() {
             >
               <ShoppingCart size={16} />
               {totalItems}
-              <span className="hidden xs:inline">— {formatCurrency(totalPrecio)}</span>
+              <span className="hidden xs:inline">— {formatCurrency(totalWithService)}</span>
             </button>
           )}
         </header>
 
         {/* Búsqueda */}
         <div className="sticky top-[57px] bg-background px-4 pt-2 z-10">
-          <SearchInput value={search} onChange={setSearch} />
+          <SearchInput value={search} onChange={setSearch} placeholder={t('Поиск блюда или напитка...')} />
         </div>
 
         {/* Filtros de categoría */}
@@ -307,7 +352,7 @@ export default function MeseroPage() {
             >
               <span className="bg-white/20 rounded-lg px-2 py-0.5 text-sm">{totalItems}</span>
               <span>{t('Ver pedido')}</span>
-              <span>{formatCurrency(totalPrecio)}</span>
+              <span>{formatCurrency(totalWithService)}</span>
             </button>
           </div>
         )}
@@ -359,9 +404,10 @@ export default function MeseroPage() {
       </main>
 
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t border-border space-y-2">
+        {percent > 0 && <div className="flex justify-between text-sm text-muted-foreground px-1"><span>{t('Обслуживание {n}%', { n: percent })}</span><span>{formatCurrency(charge)}</span></div>}
         <div className="flex justify-between text-sm text-muted-foreground px-1">
           <span>{t('Productos: {n}', { n: totalItems })}</span>
-          <span className="font-bold text-foreground text-base">{t('Total:')} {formatCurrency(totalPrecio)}</span>
+          <span className="font-bold text-foreground text-base">{t('Total:')} {formatCurrency(totalWithService)}</span>
         </div>
         <button
           disabled={crearPedido.isPending || agregarItems.isPending}
@@ -374,7 +420,7 @@ export default function MeseroPage() {
           {crearPedido.isPending || agregarItems.isPending
             ? t('Enviando...')
             : mesaSel?.estado === 'LIBRE'
-              ? t('🍳 Enviar a cocina')
+              ? requiereCocina ? t('🍳 Enviar a cocina') : t('Crear pedido')
               : t('➕ Añadir al pedido')}
         </button>
       </div>

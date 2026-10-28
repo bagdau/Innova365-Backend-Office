@@ -6,3 +6,7 @@ dist/
 prisma/node_modules/
 print-agent/agent-token.txt
 .scratch/
+native-innova365/vendor/pgsql/
+native-innova365/vendor/seed.sql
+native-innova365/vendor/offline-manifest.json
+native-innova365/vendor/*-binaries.zip

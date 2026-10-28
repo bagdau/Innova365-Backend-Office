@@ -25,7 +25,7 @@ router.get('/acc/zreport', need('acc.view'), ah(async (req, res) => {
   const date = typeof req.query.date === 'string' ? parse(isoDate, req.query.date) : todayIso(s.timezone);
   const [days, orders, cancelled, cats] = await Promise.all([
     revenueByDay(rid, s.timezone, date, date),
-    q(`select p.numero, p.tipo::text as tipo, m.numero as mesa, p.total, p."metodoPago", (p."actualizadoEn" at time zone 'UTC' at time zone $2) as paid_at,
+    q(`select p.numero, p.tipo::text as tipo, m.numero as mesa, p.total, p."metodoPago", (p."actualizadoEn" at time zone 'UTC') as paid_at,
               (select coalesce(sum(ip.cantidad), 0)::int from public."ItemPedido" ip where ip."pedidoId" = p.id) as items
          from public."Pedido" p left join public."Mesa" m on m.id = p."mesaId"
         where p."restauranteId" = $1 and p.estado = 'PAGADO' and ${payBetween('$3', '$3')} order by p."actualizadoEn"`, [rid, s.timezone, date]),
@@ -34,8 +34,9 @@ router.get('/acc/zreport', need('acc.view'), ah(async (req, res) => {
     revenueByCategory(rid, s.timezone, date, date),
   ]);
   const t = sumDays(days);
+  const { orders: orderCount, ...totals } = t;
   res.json({
-    date, ...t, avgCheck: t.orders ? round2(t.revenue / t.orders) : 0,
+    date, ...totals, orderCount, avgCheck: orderCount ? round2(t.revenue / orderCount) : 0,
     vat: s.vatEnabled ? round2(t.revenue * s.vat / (100 + s.vat)) : 0, vatRate: s.vatEnabled ? s.vat : 0,
     cancelled: { count: cancelled[0].n, total: n(cancelled[0].total) }, categories: cats,
     orders: orders.map((o) => ({ numero: o.numero, tipo: o.tipo, mesa: o.mesa, total: n(o.total), method: methodLabel(o.metodoPago), paidAt: o.paid_at, items: o.items })),

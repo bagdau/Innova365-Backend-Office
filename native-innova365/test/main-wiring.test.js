@@ -20,11 +20,12 @@ const booted = [];
 test.after(async () => { for (const b of booted) await b.shutdown(); Module._load = origLoad; });
 
 /** Запускает src/main.js с подставным electron и готовым config.json. */
-async function boot(config = {}) {
+async function boot(config = {}, netFake) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'innova-wire-'));
   const f = makeElectron({ userData: dir });
+  if (netFake) f.electron.net.fake = netFake;
   const port = await freePort();
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ ...config, agent: { port, token: 'a'.repeat(36), ...(config.agent || {}) } }));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ ...config, activation: config.serverUrl ? { installationId: '11111111-1111-4111-8111-111111111111', token: 'a'.repeat(64), restaurantId: 'aisultan', restaurantName: 'Aisultan' } : undefined, agent: { port, token: 'a'.repeat(36), ...(config.agent || {}) } }));
   for (const k of Object.keys(require.cache)) if (k.startsWith(path.join(ROOT, 'src')) || k.startsWith(path.join(ROOT, 'lib'))) delete require.cache[k];
   Module._load = function (req, ...rest) { return req === 'electron' ? f.electron : origLoad.call(this, req, ...rest); };
   require('../src/main');
@@ -46,22 +47,67 @@ async function boot(config = {}) {
 }
 
 const SERVER = 'https://innova365.kz';
+test('локально упакованная касса открывается без загрузки страницы с сайта', async () => {
+  process.env.INNOVA_LOCAL_UI = '1';
+  let b;
+  try { b = await boot({ serverUrl: SERVER }); }
+  finally { delete process.env.INNOVA_LOCAL_UI; }
+  const url = b.main().loaded[0];
+  assert.match(url, /^http:\/\/127\.0\.0\.1:\d+$/);
+  assert.match(await (await fetch(url + '/login')).text(), /<html/i);
+  const wc = b.main().webContents;
+  wc.url = url + '/login';
+  assert.equal((await b.invoke('web:systemPrinters', { wc })).ok, true);
+});
 /** Открывает настройки так же, как пользователь: пунктом меню в трее. */
 const openSettings = async (b) => { b.rec.menus.at(-1).find((i) => i.label === 'Настройки…').click(); await tick(); return b.settings(); };
 
-test('первый запуск: открывается только мастер; после сохранения адреса — окно кассы', async () => {
+test('первый запуск: только активация, адрес нельзя сохранить вручную', async () => {
   const b = await boot();
   assert.equal(b.main(), undefined);
   const s = b.settings();
-  assert.ok(s, 'окно настроек'); assert.match(s.loaded[0], /settings\.html\?first=1/);
-  const st = await b.ui('state', s.webContents);
-  assert.equal(st.first, true); assert.equal(st.locked, false);
-  assert.equal((await b.ui('save', s.webContents, { serverUrl: 'javascript:alert(1)' })).ok, false);
+  assert.match(s.loaded[0], /activation\.html\?first=1/);
+  assert.equal((await b.ui('state', s.webContents)).first, true);
+  await b.ui('save', s.webContents, { serverUrl: 'https://evil.example' });
+  assert.equal(b.cfgFile().serverUrl, '');
+  assert.equal((await b.ui('activate', s.webContents, 'bad')).ok, false);
+  b.electron.net.fake = async () => ({ ok: true, status: 200, json: async () => ({ token: 'b'.repeat(64), restaurant: { id: 'aisultan', name: 'Aisultan' } }) });
+  const r = await b.ui('activate', s.webContents, 'ABCD-EFGH-JKLM');
+  assert.equal(r.ok, true);
+  assert.equal(b.main().loaded[0], SERVER);
+  assert.equal(b.cfgFile().activation.restaurantId, 'aisultan');
+  assert.equal((await b.ui('state', s.webContents)).config.activation.token, undefined);
+});
+
+test('отозванная активация открывает ввод нового кода и не ломает вход', async () => {
+  const b = await boot({ serverUrl: SERVER }, async (url) => ({ status: url.endsWith('/api/desktop/verify') ? 401 : 200 }));
   assert.equal(b.main(), undefined);
-  const r = await b.ui('save', s.webContents, { serverUrl: 'innova365.kz' });
-  assert.equal(r.ok, true); assert.equal(r.config.serverUrl, SERVER);
-  const m = b.main(); assert.ok(m, 'окно кассы создано'); assert.equal(m.loaded[0], SERVER);
-  assert.equal(b.cfgFile().serverUrl, SERVER, 'настройка записана на диск');
+  assert.match(b.settings().loaded.at(-1), /activation\.html/);
+  assert.equal(b.cfgFile().activation.token, '');
+  assert.equal(b.cfgFile().activation.installationId, '11111111-1111-4111-8111-111111111111');
+  assert.equal(b.sessions.get('persist:innova365').cookiesCleared, true);
+  b.electron.net.fake = async () => ({ status: 200, ok: true, json: async () => ({ token: 'b'.repeat(64), restaurant: { id: 'aisultan', name: 'Aisultan' } }) });
+  const result = await b.ui('activate', b.settings().webContents, 'ABCD-EFGH-JKLM');
+  assert.equal(result.ok, true);
+  assert.equal(b.main().loaded.at(-1), SERVER);
+});
+
+test('ошибка пароля не сбрасывает активацию; отзыв во время работы возвращает к коду', async () => {
+  const b = await boot({ serverUrl: SERVER });
+  const ses = b.sessions.get('persist:innova365');
+  ses.completed({ statusCode: 401, url: SERVER + '/api/auth/login' });
+  await tick();
+  assert.equal(b.cfgFile().activation.token, 'a'.repeat(64));
+  b.electron.net.fake = async () => ({ status: 401 });
+  ses.completed({ statusCode: 401, url: SERVER + '/api/auth/login' });
+  await tick();
+  assert.equal(b.cfgFile().activation.token, '');
+  assert.equal(b.main().visible, false);
+  assert.match(b.settings().loaded.at(-1), /activation\.html/);
+  b.electron.net.fake = async () => ({ status: 200, ok: true, json: async () => ({ token: 'c'.repeat(64), restaurant: { id: 'aisultan', name: 'Aisultan' } }) });
+  assert.equal((await b.ui('activate', b.settings().webContents, 'ABCD-EFGH-JKLM')).ok, true);
+  assert.equal(b.main().visible, true);
+  assert.equal(b.main().loaded.at(-1), SERVER);
 });
 
 test('окно кассы: безопасные webPreferences и режимы', async () => {
@@ -74,7 +120,8 @@ test('окно кассы: безопасные webPreferences и режимы',
   m.webContents.emit('did-finish-load'); assert.equal(m.webContents.zoom, 1.2);
   assert.equal(b.rec.switches.length, 0, 'для https особых флагов нет');
   const h = await boot({ serverUrl: 'http://192.168.1.10:8080' });
-  assert.deepEqual(h.rec.switches[0], ['unsafely-treat-insecure-origin-as-secure', 'http://192.168.1.10:8080']);
+  assert.equal(h.main().loaded[0], SERVER);
+  assert.equal(h.rec.switches.length, 0);
 });
 
 test('навигация: чужие адреса — в браузер системы, редирект сервера доверяется, всплывающие окна фильтруются', async () => {
@@ -87,10 +134,10 @@ test('навигация: чужие адреса — в браузер сист
   e = nav('file:///c:/Windows/win.ini'); wc.emit('will-navigate', e); assert.ok(e.defaultPrevented, 'произвольный file:// запрещён');
   assert.equal(b.rec.openExternal.length, 1, 'file:// наружу не открывается');
   e = nav(FRONT_FILE('offline.html')); wc.emit('will-navigate', e); assert.ok(!e.defaultPrevented, 'свой экран «нет связи» разрешён');
-  // редирект самого сервера на www-адрес: разрешён и источник становится доверенным
-  e = nav('https://www.innova365.kz/'); wc.emit('will-redirect', e); assert.ok(!e.defaultPrevented);
-  e = nav('https://www.innova365.kz/caja'); wc.emit('will-navigate', e); assert.ok(!e.defaultPrevented, 'после редиректа переходы внутри нового источника разрешены');
-  assert.equal((await b.health('https://www.innova365.kz')).origin, true, 'агент теперь доверяет и новому источнику');
+  // редирект на другой домен заблокирован
+  e = nav('https://www.innova365.kz/'); wc.emit('will-redirect', e); assert.ok(e.defaultPrevented);
+  e = nav('https://www.innova365.kz/caja'); wc.emit('will-navigate', e); assert.ok(e.defaultPrevented);
+  assert.equal((await b.health('https://www.innova365.kz')).origin, false);
   e = nav('https://evil.example/', false); wc.emit('will-redirect', e); assert.ok(!e.defaultPrevented, 'не главный кадр не трогаем');
   // окна, открытые страницей
   const open = wc.openHandler;
@@ -179,10 +226,9 @@ test('сохранение настроек: whitelist полей, автоза�
   await assert.rejects(() => fetch(`http://127.0.0.1:${oldPort}/health`), 'старый порт закрыт');
   const r3 = await b.ui('save', S, { agent: { enabled: false } });
   assert.equal(r3.agent.state, 'stopped'); await assert.rejects(() => fetch(`http://127.0.0.1:${newPort}/health`));
-  // смена адреса кассы перезагружает окно и сбрасывает доверие к редиректам
-  const m = b.main(); const before = m.loaded.length;
+  // пользовательские настройки не могут сменить сервер кассы
   await b.ui('save', S, { serverUrl: 'http://192.168.0.5:8080' });
-  assert.equal(m.loaded.at(-1), 'http://192.168.0.5:8080'); assert.ok(m.loaded.length > before);
+  assert.equal(b.cfgFile().serverUrl, SERVER);
   // новый токен
   const old = b.cfgFile().agent.token; await b.ui('newToken', S); assert.notEqual(b.cfgFile().agent.token, old);
 });
@@ -287,7 +333,24 @@ test('печать документов без диалога: только по
   assert.deepEqual(r, { handled: true });
   assert.equal(b.rec.printed.length, 1); assert.equal(b.rec.printed[0].opts.silent, true); assert.equal(b.rec.printed[0].opts.deviceName, 'XP-80C');
   const doc = b.BW.all.find((w) => w.opts.webPreferences?.javascript === false); assert.ok(doc, 'документ печатается в окне без JavaScript'); assert.equal(doc.opts.show, false);
-  assert.ok(doc.destroyed, 'скрытое окно уничтожено'); assert.match(doc.loaded[0], /innova365-doc-.*\.html$/);
+  assert.equal(doc.destroyed, false, 'окно остаётся живым, пока драйвер забирает страницу'); assert.match(doc.loaded[0], /innova365-doc-.*\.html$/);
+});
+
+test('печать через драйвер Windows: выбранная очередь и защита от чужих страниц', async () => {
+  const b = await boot({ serverUrl: SERVER });
+  const wc = b.main().webContents; wc.url = SERVER + '/caja';
+  const evil = { id: 999, getURL: () => 'https://evil.example/', mainFrame: {} };
+  const list = await b.invoke('web:systemPrinters', { wc });
+  assert.deepEqual(list, { ok: true, printers: [{ name: 'Fallback', displayName: 'Fallback', isDefault: false }] });
+  assert.equal((await b.invoke('web:systemPrinters', { wc: evil })).ok, false);
+  const page = { widthMm: 80, heightMm: 112 };
+  assert.equal((await b.invoke('web:printDocument', { wc, args: ['<html>Чек</html>', 'missing', page] })).ok, false);
+  assert.equal((await b.invoke('web:printDocument', { wc: evil, args: ['<html>Чек</html>', 'Fallback', page] })).ok, false);
+  assert.equal((await b.invoke('web:printDocument', { wc, frame: { url: SERVER + '/frame' }, args: ['<html>Чек</html>', 'Fallback', page] })).ok, false);
+  assert.equal((await b.invoke('web:printDocument', { wc, args: ['<html>Чек</html>', 'Fallback', { widthMm: 80, heightMm: 1 }] })).ok, false);
+  assert.deepEqual(await b.invoke('web:printDocument', { wc, args: ['<html>Чек</html>', 'Fallback', page] }), { ok: true });
+  assert.equal(b.rec.printed.at(-1).opts.deviceName, 'Fallback');
+  assert.deepEqual(b.rec.printed.at(-1).opts.pageSize, { width: 80000, height: 112000 });
 });
 
 test('пробная печать и проверка адреса через IPC', async () => {
@@ -298,7 +361,7 @@ test('пробная печать и проверка адреса через IP
   const port = srv.address().port;
   const ok = await b.ui('testPrint', S, { printer: `127.0.0.1:${port}`, width: 58, codepage: 'cp1251' });
   assert.equal(ok.ok, true); await tick(250);
-  const data = Buffer.concat(got); assert.deepEqual([...data.subarray(0, 5)], [0x1b, 0x40, 0x1b, 0x74, 46], 'ESC @, кодовая страница 46 (cp1251)');
+  const data = Buffer.concat(got); assert.deepEqual([...data.subarray(0, 7)], [0x1b, 0x40, 0x1c, 0x2e, 0x1b, 0x74, 46], 'ESC @, выход из китайского режима, CP1251');
   assert.deepEqual([...data.subarray(-4)], [0x1d, 0x56, 0x42, 0x00]);
   const bad = await b.ui('testPrint', S, { printer: '8.8.8.8:9100' }); assert.equal(bad.ok, false); assert.match(bad.error, /локальной сети/);
   const closed = await b.ui('testPrint', S, { printer: '127.0.0.1:9' }); assert.equal(closed.ok, false);

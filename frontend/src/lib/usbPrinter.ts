@@ -81,12 +81,12 @@ export async function sendUsb(dev: Usb, data: Uint8Array): Promise<void> {
 }
 
 /** Печатает документ через USB. Ошибки: 'insecure' | 'unsupported' | 'no-device' | 'winusb' | текст. */
-export async function printUsb(doc: { tipo: 'recibo' | 'cuenta' | 'cocina' | 'cierre' | 'prueba'; pedidoId?: string }): Promise<{ printer: string }> {
+export async function printUsb(doc: { tipo: 'recibo' | 'cuenta' | 'cocina' | 'cierre' | 'prueba'; pedidoId?: string; periodo?: 'hoy' | 'semana' | 'mes' }, ancho?: number): Promise<{ printer: string }> {
   if (!usb()) throw new Error(usbSupport());
   const saved = await savedPrinter();
   if (!saved) throw new Error('no-device');
   const cfg = getLocalCfg();
-  const { data } = await api.post<{ data: string }>('/imprimir/bytes', { ...doc, ancho: cfg.ancho, codepage: cfg.codepage, lang: printLang }, { timeout: 10000 });
+  const { data } = await api.post<{ data: string }>('/imprimir/bytes', { ...doc, ancho: ancho ?? cfg.ancho, codepage: cfg.codepage, lang: printLang }, { timeout: 10000 });
   await sendUsb(saved.dev, b64ToBytes(data.data));
   return { printer: saved.info.name };
 }

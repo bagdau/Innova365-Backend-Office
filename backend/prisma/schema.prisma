@@ -10,6 +10,7 @@ datasource db {
 
 model Restaurante {
   id          String   @id @default(cuid())
+  activationCodeHash String? @unique
   nombre      String
   direccion   String?
   telefono    String?
@@ -22,6 +23,8 @@ model Restaurante {
   moneda      String   @default("KZT")
   /// Содержимое QR для оплаты клиентом (ссылка/реквизиты); поддерживает {total} {numero} {moneda} {restaurante}
   qrPago      String?
+  /// Настройки оформления чеков и кассовых отчётов для всех рабочих мест
+  printSettings Json?
   creadoEn    DateTime @default(now())
 
   usuarios   Usuario[]
@@ -33,6 +36,43 @@ model Restaurante {
   proveedores Proveedor[]
   compras     Compra[]
   impresoras  Impresora[]
+  desktopInstallations DesktopInstallation[]
+  billingSubscription BillingSubscription?
+  billingGrants BillingGrant[]
+}
+
+model BillingSubscription {
+  restauranteId String @id
+  restaurante Restaurante @relation(fields: [restauranteId], references: [id], onDelete: Cascade)
+  paidUntil DateTime
+  updatedAt DateTime @updatedAt
+}
+
+/// Подтверждённое оператором продление. Владелец не может продлить срок через API кассы.
+model BillingGrant {
+  id String @id @default(cuid())
+  restauranteId String
+  restaurante Restaurante @relation(fields: [restauranteId], references: [id], onDelete: Cascade)
+  reference String @unique
+  months Int
+  previousUntil DateTime?
+  paidUntil DateTime
+  createdAt DateTime @default(now())
+
+  @@index([restauranteId, createdAt])
+}
+
+model DesktopInstallation {
+  id            String      @id @default(cuid())
+  installationId String     @unique
+  tokenHash     String      @unique
+  restauranteId String
+  restaurante   Restaurante @relation(fields: [restauranteId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+  lastSeenAt    DateTime    @default(now())
+  revokedAt     DateTime?
+
+  @@index([restauranteId, revokedAt])
 }
 
 model Usuario {
@@ -40,7 +80,12 @@ model Usuario {
   nombre        String
   email         String      @unique
   passwordHash  String
+  pinHash       String?
+  pinKey        String?   @unique
+  pinAttempts   Int         @default(0)
+  pinLockedUntil DateTime?
   rol           Rol
+  waiterPercent Decimal     @default(0) @db.Decimal(5, 2)
   activo        Boolean     @default(true)
   restauranteId String
   restaurante   Restaurante @relation(fields: [restauranteId], references: [id])
@@ -136,14 +181,24 @@ model Pedido {
   estado        EstadoPedido @default(PENDIENTE)
   mesaId        String?
   mesa          Mesa?        @relation(fields: [mesaId], references: [id])
+  /// Назначенный официант; если не назначен, сотрудник, создавший заказ.
   meseroId      String?
   mesero        Usuario?     @relation(fields: [meseroId], references: [id])
+  /// Сотрудник, последним отметивший заказ готовым.
+  cocineroId    String?
+  cocineroNombre String?
   restauranteId String
   restaurante   Restaurante  @relation(fields: [restauranteId], references: [id])
   items         ItemPedido[]
   pagado        Boolean      @default(false)
   metodoPago    String?
+  cajeroNombre  String?
+  cajeroRol     String?
   total         Decimal?
+  servicePercent Decimal     @default(0) @db.Decimal(5, 2)
+  serviceAmount  Decimal     @default(0) @db.Decimal(14, 2)
+  serviceDecimals Int        @default(0)
+  pagadoEn      DateTime?
   tiempoInicio  DateTime?
   tiempoListo   DateTime?
   creadoEn      DateTime     @default(now())
@@ -154,6 +209,8 @@ model Pedido {
   @@index([restauranteId, estado, actualizadoEn])
   @@index([mesaId])
   @@index([meseroId])
+  @@index([restauranteId, pagadoEn])
+  @@index([cocineroId])
 }
 
 enum TipoPedido {
@@ -424,6 +481,9 @@ model RecetaItem {
   cantidad     Decimal   @db.Decimal(14, 6)
   /// Нетто (в готовом блюде), необязательно — для печати тех-карты
   neto         Decimal?  @db.Decimal(14, 6)
+  /// Потери при холодной и горячей обработке в процентах от массы на соответствующем этапе.
+  coldLossPct  Decimal?  @db.Decimal(5, 2)
+  hotLossPct   Decimal?  @db.Decimal(5, 2)
 
   @@index([recetaId])
   @@index([insumoId])

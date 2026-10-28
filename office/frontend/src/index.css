@@ -52,5 +52,11 @@ body { margin: 0; background: rgb(var(--bg)); color: rgb(var(--ink)); font-famil
   main { height: auto !important; }
   .no-print { display: none !important; }
   .print-page { box-shadow: none !important; border: 0 !important; margin: 0 !important; }
+  .office-z-print { font-family: Arial, 'Segoe UI', sans-serif; font-size: 12px; line-height: 1.35; }
+  .office-z-print table { table-layout: fixed; }
+  .office-z-print thead { display: table-header-group; }
+  .office-z-print tfoot { display: table-row-group; }
+  .office-z-print tr { break-inside: avoid; page-break-inside: avoid; }
+  .office-z-print td, .office-z-print th { overflow-wrap: anywhere; }
   @page { size: A4; margin: 14mm; }
 }

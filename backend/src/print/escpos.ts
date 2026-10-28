@@ -7,7 +7,17 @@ import iconv from 'iconv-lite';
 export type Codepage = 'cp866' | 'cp1251' | 'ascii';
 
 const ESC = 0x1b;
+const FS = 0x1c;
 const GS = 0x1d;
+
+// 9×8 точек: знак тенге нельзя передать через CP866/CP1251. ESC * 0
+// помещает небольшой графический символ в текущую строку XP-76.
+const TENGE_ROWS = [
+  '111111111', '000010000', '111111111', '000010000',
+  '000010000', '000010000', '000010000', '000000000',
+];
+const TENGE_DOTS = Buffer.from(Array.from({ length: 9 }, (_, x) =>
+  TENGE_ROWS.reduce((bits, row, y) => bits | (row[x] === '1' ? 0x80 >> y : 0), 0)));
 
 /** Таблица замены символов, которых нет в кодовой странице принтера */
 const REPLACE: Record<string, string> = {
@@ -48,6 +58,9 @@ export class EscPos {
   /** @param cols символов в строке: 48 для 80 мм, 32 для 58 мм */
   constructor(public readonly cols: number, private cp: Codepage) {
     this.raw([ESC, 0x40]); // инициализация
+    // XP-76 после сброса может включать двухбайтовый режим китайских символов.
+    // Отменяем его до передачи однобайтового текста CP866/CP1251.
+    this.raw([FS, 0x2e]);
     if (cp === 'cp866') this.raw([ESC, 0x74, 17]);
     else if (cp === 'cp1251') this.raw([ESC, 0x74, 46]);
     else this.raw([ESC, 0x74, 0]);
@@ -63,7 +76,14 @@ export class EscPos {
     return this.cp === 'ascii' ? Buffer.from(clean, 'latin1') : iconv.encode(clean, this.cp);
   }
 
-  text(s: string): this { return this.raw(this.encode(s)); }
+  text(s: string): this {
+    const parts = s.split('₸');
+    parts.forEach((part, index) => {
+      if (index) this.raw([ESC, 0x2a, 0, TENGE_DOTS.length, 0]).raw(TENGE_DOTS);
+      if (part) this.raw(this.encode(part));
+    });
+    return this;
+  }
   line(s = ''): this { return this.text(s).raw([0x0a]); }
   feed(n = 1): this { return this.raw([ESC, 0x64, n]); }
 

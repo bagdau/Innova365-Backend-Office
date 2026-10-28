@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { desktopRestaurant } from '../controllers/desktop.controller';
 
 export interface JwtPayload {
   userId: string;
@@ -17,7 +18,7 @@ declare global {
   }
 }
 
-export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
+export async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Token requerido' });
@@ -27,6 +28,11 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
   const token = authHeader.split(' ')[1];
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET!) as JwtPayload;
+    const desktopId = await desktopRestaurant(req);
+    if (desktopId === false || (desktopId && desktopId !== payload.restauranteId)) {
+      res.status(401).json({ error: 'Активация приложения недействительна' });
+      return;
+    }
     req.user = payload;
     req.restauranteId = payload.restauranteId;
     next();

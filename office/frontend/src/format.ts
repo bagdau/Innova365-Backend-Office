@@ -7,6 +7,8 @@ const SYMBOLS: Record<string, string> = { KZT: '₸', RUB: '₽', KGS: 'сом',
 let currency = 'KZT';
 export const setCurrency = (c: string) => { currency = c || 'KZT'; };
 export const currencySymbol = () => SYMBOLS[currency] ?? currency;
+let timezone = 'Asia/Almaty';
+export const setTimezone = (tz: string) => { timezone = tz || 'Asia/Almaty'; };
 
 /** Сумма: целые для тенге/сума, копейки для остальных. */
 export function money(v: number | null | undefined, opts: { sign?: boolean; plain?: boolean } = {}): string {
@@ -23,10 +25,10 @@ export const pct = (v: number | null | undefined): string => (v === null || v ==
 export const fmtDate = (iso: string | null | undefined): string => {
   if (!iso) return '—';
   const d = new Date(iso.length === 10 ? iso + 'T00:00:00' : iso);
-  return d.toLocaleDateString(locale(), { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return d.toLocaleDateString(locale(), { day: '2-digit', month: '2-digit', year: 'numeric', ...(iso.length === 10 ? {} : { timeZone: timezone }) });
 };
 export const fmtDateTime = (iso: string | null | undefined): string =>
-  (iso ? new Date(iso).toLocaleString(locale(), { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
+  (iso ? new Date(iso).toLocaleString(locale(), { timeZone: timezone, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) : '—');
 export const fmtShort = (iso: string): string => new Date(iso + 'T00:00:00').toLocaleDateString(locale(), { day: '2-digit', month: 'short' });
 
 /** Сегодня в часовом поясе ресторана (YYYY-MM-DD). */

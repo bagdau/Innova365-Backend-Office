@@ -11,7 +11,7 @@ import { DiscoverPrinters } from './DiscoverPrinters';
 import { cn } from '../../utils/cn';
 import { Select } from '../../components/ui/Select';
 
-const ANCHOS = [{ value: '80', label: '80 mm' }, { value: '90', label: '90 mm' }, { value: '58', label: '58 mm' }];
+const ANCHOS = [{ value: '58', label: '58 mm' }, { value: '76', label: '76 mm (XP-76)' }, { value: '80', label: '80 mm' }, { value: '90', label: '90 mm' }];
 import { t, apiError, printLang as lang } from '../../i18n';
 
 const inputCls = 'w-full bg-muted border border-border rounded-m px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary';

@@ -17,6 +17,7 @@ const pageTitles: Record<string, string> = {
   '/cocina':       t('Vista Cocina'),
   '/entregas':     t('Entregas'),
   '/menu':         t('Gestión de Menú'),
+  '/techcards':    'Техкарты и остатки',
   '/inventario':   t('Inventario'),
   '/reportes':     t('Reportes'),
   '/caja':         t('Registro de Pago'),

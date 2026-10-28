@@ -9,7 +9,7 @@
 </head>
 <body>
   <div class="top">
-    <div class="logo">I</div>
+    <img class="settings-logo" src="logo.png" alt="Innova365 POS">
     <div class="t"><b>Innova365</b><span id="subtitle">Настройки приложения</span></div>
     <div class="spacer"></div>
     <span class="small muted" id="ver"></span>
@@ -26,42 +26,14 @@
     </div>
   </div>
 
-  <!-- первый запуск -->
-  <div class="center hide" id="first">
-    <div class="box card">
-      <h2>Добро пожаловать в Innova365</h2>
-      <p class="muted">Укажите адрес вашей кассы. Его выдаёт администратор (например, <span class="mono">innova365.kz</span> или <span class="mono">192.168.1.10:8080</span>).</p>
-      <label class="l" for="f_server">Адрес кассы</label>
-      <input type="text" id="f_server" placeholder="innova365.kz" spellcheck="false">
-      <div class="msg" id="f_msg"></div>
-      <div class="actions"><button class="btn" id="f_go">Сохранить и запустить</button><button class="btn soft" id="f_check">Проверить адрес</button></div>
-      <p class="small muted" style="margin-top:14px">Остальное — печать, режим киоска, PIN — можно настроить позже: Ctrl+Shift+S или значок в трее.</p>
-    </div>
-  </div>
-
   <div class="layout hide" id="app">
     <nav class="tabs" id="tabs">
-      <button data-tab="connection" class="on">Подключение</button>
       <button data-tab="print">Печать</button>
       <button data-tab="window">Окно и запуск</button>
       <button data-tab="security">Безопасность</button>
       <button data-tab="about">О программе</button>
     </nav>
     <main>
-      <!-- Подключение -->
-      <section class="pane on" id="pane-connection">
-        <div class="card">
-          <h2 style="margin-bottom:12px">Адреса</h2>
-          <div class="row"><div class="f"><label class="l" for="serverUrl">Касса</label><input type="text" id="serverUrl" placeholder="https://innova365.kz" spellcheck="false"></div><button class="btn soft" data-check="serverUrl">Проверить</button></div>
-          <div class="msg" id="m_serverUrl"></div>
-          <div class="row"><div class="f"><label class="l" for="officeUrl">Office (необязательно)</label><input type="text" id="officeUrl" placeholder="https://office.innova365.kz" spellcheck="false"></div><button class="btn soft" data-check="officeUrl">Проверить</button></div>
-          <div class="msg" id="m_officeUrl"></div>
-          <p class="small muted">Office открывается отдельным окном из значка в трее. Сайты открываются только с этих адресов; любые другие ссылки уходят в обычный браузер.</p>
-          <div class="actions"><button class="btn" data-save="connection">Сохранить</button></div>
-          <div class="msg" id="m_connection"></div>
-        </div>
-      </section>
-
       <!-- Печать -->
       <section class="pane" id="pane-print">
         <div class="card">

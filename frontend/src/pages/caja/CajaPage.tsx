@@ -9,7 +9,7 @@ import { formatCurrency } from '../../utils/cn';
 import type { Pedido } from '../../types';
 import toast from 'react-hot-toast';
 import { cn } from '../../utils/cn';
-import { t } from '../../i18n';
+import { t, apiError } from '../../i18n';
 import { currencySymbol } from '../../lib/currency';
 import { PayQr } from '../../components/shared/PayQr';
 import { printOrder, printDayClosing, printAfterPayment } from '../../lib/printClient';
@@ -41,7 +41,7 @@ export default function CajaPage() {
   const enProceso = pedidos.filter((p) => ['EN_COCINA', 'EN_PREPARACION', 'LISTO'].includes(p.estado));
 
   const pagar = useMutation({
-    mutationFn: () => pedidosService.registrarPago(selected!.id, metodo),
+    mutationFn: () => pedidosService.registrarPago(selected!.id, metodo, Number(selected!.total ?? 0)),
     onSuccess: (resp) => {
       const ped = selected;
       qc.invalidateQueries({ queryKey: ['pedidosActivos'] });
@@ -51,7 +51,19 @@ export default function CajaPage() {
       toast.success(t('Pago registrado correctamente'));
       if (ped) void printAfterPayment(ped, metodo, resp);   // чек сразу после оплаты
     },
-    onError: () => toast.error(t('Error al registrar pago')),
+    onError: (error: any) => {
+      if (error?.response?.status === 409) { setSelected(null); void qc.invalidateQueries({ queryKey: ['pedidosActivos'] }); }
+      toast.error(apiError(error, t('Error al registrar pago')));
+    },
+  });
+
+  const entregarParaLlevar = useMutation({
+    mutationFn: (pedidoId: string) => pedidosService.updateEstado(pedidoId, 'ENTREGADO'),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['pedidosActivos'] });
+      toast.success(t('Pedido entregado al cliente'));
+    },
+    onError: () => toast.error(t('Error al entregar pedido')),
   });
 
   const total = Number(selected?.total ?? 0);
@@ -90,7 +102,7 @@ export default function CajaPage() {
                 <span className="text-sm font-bold text-primary">{formatCurrency(Number(p.total ?? 0))}</span>
               </div>
               <div className="text-xs text-muted-foreground">
-                {p.mesero?.nombre ?? ''} · {p.items.length} {t('items')}
+                {p.mesero?.nombre ? `${t('Pedido registrado por')}: ${p.mesero.nombre} · ` : ''}{p.items.length} {t('items')}
               </div>
             </button>
           ))}
@@ -113,8 +125,14 @@ export default function CajaPage() {
               <div className="text-xs text-muted-foreground">
                 {p.estado === 'EN_PREPARACION'
                   ? t('👨‍🍳 Preparando · {n} min', { n: minutesSince(p.tiempoInicio, now) })
-                  : `${p.mesero?.nombre ?? ''} · ${p.items.length} ${t('items')}`}
+                  : `${p.mesero?.nombre ? `${t('Pedido registrado por')}: ${p.mesero.nombre} · ` : ''}${p.items.length} ${t('items')}`}
               </div>
+              {p.tipo === 'PARA_LLEVAR' && p.estado === 'LISTO' && (
+                <button disabled={entregarParaLlevar.isPending} onClick={() => entregarParaLlevar.mutate(p.id)}
+                  className="mt-2 w-full rounded-m bg-success/10 px-3 py-2 text-xs font-semibold text-success disabled:opacity-50">
+                  {t('Выдать заказ клиенту')}
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -153,6 +171,10 @@ export default function CajaPage() {
               </div>
 
               <div className="border-t border-border pt-4">
+                {Number(selected.servicePercent ?? 0) > 0 && <div className="space-y-1 text-sm text-muted-foreground mb-3">
+                  <div className="flex justify-between"><span>{t('Блюда')}</span><span>{formatCurrency(total - Number(selected.serviceAmount ?? 0))}</span></div>
+                  <div className="flex justify-between"><span>{t('Обслуживание {n}%', { n: Number(selected.servicePercent) })}</span><span>{formatCurrency(Number(selected.serviceAmount ?? 0))}</span></div>
+                </div>}
                 <div className="flex justify-between text-2xl font-bold text-foreground">
                   <span>{t('TOTAL A PAGAR')}</span>
                   <span className="text-primary">{formatCurrency(total)}</span>

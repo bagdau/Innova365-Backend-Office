@@ -66,12 +66,12 @@ test('config: значения по умолчанию, токен создаё�
 test('config: update валидирует и не сохраняет при ошибке', () => {
   const f = path.join(tmp(), 'config.json'); const c = new Config(f);
   assert.ok(c.update({ serverUrl: 'innova365.kz', agent: { port: 9200 }, kiosk: true }).ok);
-  assert.equal(c.get().serverUrl, 'https://innova365.kz'); assert.equal(c.get().agent.port, 9200); assert.equal(c.get().kiosk, true);
+  assert.equal(c.get().serverUrl, ''); assert.equal(c.get().agent.port, 9200); assert.equal(c.get().kiosk, true);
   const r = c.update({ serverUrl: 'javascript:alert(1)', kiosk: false });
   assert.ok(!r.ok); assert.equal(c.get().kiosk, true, 'ничего не применилось');
   assert.ok(!c.update({ agent: { port: 80 } }).ok);
   assert.ok(!c.update({ agent: { port: 'abc' } }).ok);
-  assert.equal(c.get().serverUrl, 'https://innova365.kz');
+  assert.equal(c.get().serverUrl, '');
 });
 test('config: произвольные поля и тип данных', () => {
   const { value } = sanitize({ kiosk: 'yes', zoom: 9, fullscreen: 1, evil: { a: 1 }, agent: { token: 'not hex!' }, print: { deviceName: 'x'.repeat(500) } });
@@ -104,7 +104,7 @@ test('config: повреждённый файл → .bak и настройки �
 test('config: запись атомарна (нет .tmp после сохранения), файл читаем', () => {
   const d = tmp(); const f = path.join(d, 'config.json'); const c = new Config(f);
   c.update({ serverUrl: 'https://x.kz' });
-  assert.ok(!fs.existsSync(f + '.tmp')); assert.equal(JSON.parse(fs.readFileSync(f, 'utf8')).serverUrl, 'https://x.kz');
+  assert.ok(!fs.existsSync(f + '.tmp')); assert.equal(JSON.parse(fs.readFileSync(f, 'utf8')).serverUrl, '');
 });
 test('config: окно — частичное обновление не сбрасывает координаты', () => {
   const c = new Config(path.join(tmp(), 'c.json'));
@@ -133,11 +133,12 @@ test('escpos: кодировки кириллицы', () => {
 });
 test('escpos: пробный чек — команды и ширина', () => {
   const b = escpos.testReceipt({ printer: 'POS-80', width: 80, codepage: 'cp866', now: new Date('2026-01-01T10:00:00Z') });
-  assert.deepEqual([...b.subarray(0, 5)], [0x1b, 0x40, 0x1b, 0x74, 17], 'сброс + кодовая страница 17');
+  assert.deepEqual([...b.subarray(0, 7)], [0x1b, 0x40, 0x1c, 0x2e, 0x1b, 0x74, 17], 'сброс + выход из китайского режима + CP866');
+  assert.ok(b.includes(escpos.encode('Пробная печать', 'cp866')), 'пробный чек содержит кириллицу CP866');
   assert.deepEqual([...b.subarray(-4)], [0x1d, 0x56, 0x42, 0x00], 'отрезка в конце');
   assert.ok(b.includes(Buffer.from('POS-80')));
   const b58 = escpos.testReceipt({ width: 58, codepage: 'cp1251', cut: false });
-  assert.equal(b58[4], 46); assert.notDeepEqual([...b58.subarray(-4)], [0x1d, 0x56, 0x42, 0x00]);
+  assert.equal(b58[6], 46); assert.notDeepEqual([...b58.subarray(-4)], [0x1d, 0x56, 0x42, 0x00]);
   assert.ok(b58.includes(Buffer.from('-'.repeat(32))) && !b58.includes(Buffer.from('-'.repeat(33))));
   assert.ok(b.includes(Buffer.from('-'.repeat(48))));
   assert.deepEqual(escpos.wrap('слово '.repeat(10).trim(), 12).every((l) => l.length <= 12), true);
@@ -155,9 +156,20 @@ test('printers: оценка и выбор', () => {
   assert.ok(list[1].usb && list[1].thermal);
   assert.ok(list[0].score < 0);
   assert.equal(pickBest([classify({ name: 'Microsoft Print to PDF', port: 'x', isDefault: true })]), null);
+  assert.equal(pickBest([classify({ name: 'HP LaserJet MFP M129', port: 'USB002', isDefault: true })]), null);
   assert.equal(pickBest([]), null);
   assert.ok(looksLikeReceipt(classify({ name: 'XP-80C', port: 'USB001' })));
   assert.ok(looksLikeReceipt(classify({ name: 'Generic / Text Only', port: 'USB001' })));
   assert.ok(!looksLikeReceipt(classify({ name: 'HP LaserJet MFP M129', port: 'USB002' })), 'лазерный принтер не считается кассовым');
   assert.ok(!looksLikeReceipt(null));
+});
+
+test('config: activation binds fixed URL and keeps token out of UI', () => {
+  const f = path.join(tmp(), 'config.json'); const c = new Config(f);
+  c.activate('a'.repeat(64), { id: 'aisultan', name: 'Aisultan' });
+  assert.equal(c.get().serverUrl, 'https://innova365.kz');
+  assert.equal(c.view().activation.token, undefined);
+  c.update({ serverUrl: 'https://evil.example' });
+  assert.equal(c.get().serverUrl, 'https://innova365.kz');
+  assert.equal(new Config(f).get().activation.restaurantId, 'aisultan');
 });

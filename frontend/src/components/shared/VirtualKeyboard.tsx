@@ -1,9 +1,10 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowBigUp, ArrowLeftToLine, ArrowRightToLine, ChevronDown, CornerDownLeft, Delete, Globe } from 'lucide-react';
 import { useKeyboardStore } from '../../store/keyboardStore';
 import { lang as appLang, t } from '../../i18n';
 import { cn } from '../../utils/cn';
+import './VirtualKeyboard.css';
 
 /**
  * Экранная (сенсорная) клавиатура для кассового моноблока.
@@ -14,7 +15,7 @@ import { cn } from '../../utils/cn';
 
 type Kb = 'ru' | 'kk' | 'en';
 type TextEl = HTMLInputElement | HTMLTextAreaElement;
-type Mode = 'text' | 'num' | 'tel' | 'email';
+type Mode = 'text' | 'num' | 'tel' | 'email' | 'pin';
 type Shift = 'off' | 'once' | 'caps';
 
 const LAYOUTS: Record<Kb, string[][]> = {
@@ -47,6 +48,7 @@ const labelOf = (el: TextEl) =>
 
 function modeOf(el: TextEl, origType: string): Mode {
   const im = (el.getAttribute('data-vkb-im') || '').toLowerCase();
+  if (im === 'pin') return 'pin';
   if (origType === 'number' || im === 'numeric' || im === 'decimal') return 'num';
   if (origType === 'tel' || im === 'tel') return 'tel';
   if (origType === 'email' || origType === 'url' || origType === 'password') return 'email';
@@ -82,7 +84,11 @@ function insertText(el: TextEl, text: string, numeric: boolean) {
 function backspace(el: TextEl) {
   const [s, e] = selOf(el);
   if (s !== e) setValue(el, el.value.slice(0, s) + el.value.slice(e), s);
-  else if (s > 0) setValue(el, el.value.slice(0, s - 1) + el.value.slice(s), s - 1);
+  else if (s > 0) {
+    const chars = Array.from(el.value.slice(0, s));
+    const previous = chars[chars.length - 1]?.length ?? 1;
+    setValue(el, el.value.slice(0, s - previous) + el.value.slice(s), s - previous);
+  }
 }
 function clearAll(el: TextEl) { setValue(el, '', 0); }
 function pressEnter(el: TextEl) {
@@ -103,22 +109,32 @@ function moveFocus(el: TextEl, dir: 1 | -1) {
 /* ───────── Кнопки ───────── */
 const RepCtx = createContext<{ start: (fn: () => void) => void; stop: () => void }>({ start: (f) => f(), stop: () => undefined });
 const guard = (e: { preventDefault: () => void; stopPropagation: () => void }) => { e.preventDefault(); e.stopPropagation(); };
-const FN = 'bg-secondary text-muted-foreground';
+const FN = 'vkb-key--action';
 
-interface KeyProps { children: React.ReactNode; onDown: () => void; className?: string; wide?: number; active?: boolean; title?: string; hold?: boolean }
-function KeyBtn({ children, onDown, className, wide = 1, active, title, hold }: KeyProps) {
+interface KeyProps { children: React.ReactNode; onDown: () => void; className?: string; wide?: number; active?: boolean; title?: string; hold?: boolean; pressed?: boolean }
+function KeyBtn({ children, onDown, className, wide = 1, active, title, hold, pressed }: KeyProps) {
   const rep = useContext(RepCtx);
+  const heldPointer = useRef<number | null>(null);
+  const stop = (id: number) => { if (heldPointer.current === id) { rep.stop(); heldPointer.current = null; } };
   return (
     <button
-      type="button" tabIndex={-1} title={title} data-sound="none" data-vkb="off"
+      type="button" title={title} aria-label={title ?? (typeof children === 'string' ? children : undefined)} aria-pressed={pressed}
+      data-sound="none" data-vkb="off"
       style={{ flex: wide }}
-      onPointerDown={(e) => { guard(e); if (hold) rep.start(onDown); else onDown(); }}
-      onPointerUp={hold ? rep.stop : undefined} onPointerLeave={hold ? rep.stop : undefined} onPointerCancel={hold ? rep.stop : undefined}
-      onMouseDown={guard} onClick={(e) => e.preventDefault()}
+      onPointerDown={(e) => {
+        guard(e);
+        if (hold) {
+          if (heldPointer.current !== null) return;
+          heldPointer.current = e.pointerId;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          rep.start(onDown);
+        } else onDown();
+      }}
+      onPointerUp={hold ? (e) => stop(e.pointerId) : undefined}
+      onPointerCancel={hold ? (e) => stop(e.pointerId) : undefined}
+      onMouseDown={guard} onClick={(e) => { e.preventDefault(); if (e.detail === 0) onDown(); }}
       className={cn(
-        'min-w-0 h-[var(--kh)] rounded-lg border text-[length:var(--kf)] font-medium select-none touch-manipulation',
-        'flex items-center justify-center transition-[transform,background-color] duration-75 active:scale-[.94] active:bg-primary/35',
-        active ? 'bg-primary/20 border-primary text-primary' : 'bg-muted border-border/60 text-foreground',
+        'vkb-key', active && 'vkb-key--active',
         className,
       )}
     >
@@ -126,7 +142,7 @@ function KeyBtn({ children, onDown, className, wide = 1, active, title, hold }: 
     </button>
   );
 }
-const Row = ({ children }: { children: React.ReactNode }) => <div className="flex gap-1.5 sm:gap-2 justify-center">{children}</div>;
+const Row = ({ children }: { children: React.ReactNode }) => <div className="vkb-row">{children}</div>;
 
 /* ───────── Компонент ───────── */
 export function VirtualKeyboard() {
@@ -137,6 +153,7 @@ export function VirtualKeyboard() {
   const [kb, setKb] = useState<Kb>(storedKb);
   const [layer, setLayer] = useState<'alpha' | 'sym'>('alpha');
   const [shift, setShift] = useState<Shift>('off');
+  const [nativeOpen, setNativeOpen] = useState(false);
   const [label, setLabel] = useState('');
   const targetRef = useRef<TextEl | null>(null);
   const restoreRef = useRef<(() => void) | null>(null);
@@ -145,7 +162,11 @@ export function VirtualKeyboard() {
   const hideTimer = useRef<ReturnType<typeof setTimeout>>();
   const repeat = useRef<{ t?: ReturnType<typeof setTimeout>; i?: ReturnType<typeof setInterval> }>({});
   const enabledRef = useRef(enabled);
+  const shiftRef = useRef(shift);
+  const kbRef = useRef(kb);
   enabledRef.current = enabled;
+  shiftRef.current = shift;
+  kbRef.current = kb;
 
   const detach = useCallback(() => { restoreRef.current?.(); restoreRef.current = null; targetRef.current = null; setTarget(null); }, []);
 
@@ -170,8 +191,9 @@ export function VirtualKeyboard() {
     };
     targetRef.current = el;
     const m = modeOf(el, origType);
+    shiftRef.current = 'off';
     setTarget(el); setMode(m); setLabel(labelOf(el)); setLayer('alpha'); setShift('off');
-    if (m === 'email') setKb('en');                             // email/пароль/ссылка — латиница
+    if (m === 'email') { kbRef.current = 'en'; setKb('en'); }    // email/пароль/ссылка — латиница
   }, []);
 
   /* фокус / потеря фокуса */
@@ -206,8 +228,18 @@ export function VirtualKeyboard() {
   /* автопоиск уже сфокусированного поля при включении */
   useEffect(() => { if (enabled && isTextEl(document.activeElement)) { attach(document.activeElement); setOpen(true); } }, [enabled, attach]);
 
+  // Если ОС всё-таки открыла собственную клавиатуру, не накладываем поверх вторую.
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const update = () => setNativeOpen(window.innerHeight - viewport.height > 150);
+    viewport.addEventListener('resize', update);
+    update();
+    return () => viewport.removeEventListener('resize', update);
+  }, []);
+
   /* высота клавиатуры → CSS-переменная: страница и окна сдвигаются */
-  const visible = enabled && open && !!target;
+  const visible = enabled && open && !!target && !nativeOpen;
   useEffect(() => {
     const root = document.documentElement;
     if (!visible) { root.classList.remove('vkb-open'); root.style.removeProperty('--vkb-h'); return; }
@@ -217,27 +249,29 @@ export function VirtualKeyboard() {
     const upd = () => root.style.setProperty('--vkb-h', `${el.offsetHeight}px`);
     upd();
     const ro = new ResizeObserver(upd); ro.observe(el);
-    const tm = setTimeout(() => targetRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 260);
-    return () => { ro.disconnect(); clearTimeout(tm); root.classList.remove('vkb-open'); root.style.removeProperty('--vkb-h'); };
-  }, [visible, target, mode, kb, layer]);
+    const frame = requestAnimationFrame(() => targetRef.current?.scrollIntoView({ block: 'nearest' }));
+    return () => { ro.disconnect(); cancelAnimationFrame(frame); root.classList.remove('vkb-open'); root.style.removeProperty('--vkb-h'); };
+  }, [visible, target]);
 
   /* ───── нажатия ───── */
   const ch = (c: string) => {
     const el = targetRef.current; if (!el) return;
-    const up = shift !== 'off' && layer === 'alpha';
+    const up = shiftRef.current !== 'off' && layer === 'alpha';
     insertText(el, up ? c.toUpperCase() : c, origNumber.current);
-    if (shift === 'once') setShift('off');
+    if (shiftRef.current === 'once') { shiftRef.current = 'off'; setShift('off'); }
   };
   const doBack = () => { const el = targetRef.current; if (el) backspace(el); };
-  const startRepeat = (fn: () => void) => {
-    fn(); stopRepeat();
-    repeat.current.t = setTimeout(() => { repeat.current.i = setInterval(fn, 55); }, 380);
-  };
-  const stopRepeat = () => { clearTimeout(repeat.current.t); clearInterval(repeat.current.i); };
-  useEffect(() => stopRepeat, []);
+  const stopRepeat = useCallback(() => { clearTimeout(repeat.current.t); clearInterval(repeat.current.i); }, []);
+  const startRepeat = useCallback((fn: () => void) => {
+    stopRepeat(); fn();
+    repeat.current.t = setTimeout(() => { repeat.current.i = setInterval(fn, 60); }, 390);
+  }, [stopRepeat]);
+  useEffect(() => stopRepeat, [stopRepeat]);
+  const repValue = useMemo(() => ({ start: startRepeat, stop: stopRepeat }), [startRepeat, stopRepeat]);
 
   const setLang = () => {
-    const next = KB_ORDER[(KB_ORDER.indexOf(kb) + 1) % KB_ORDER.length];
+    const next = KB_ORDER[(KB_ORDER.indexOf(kbRef.current) + 1) % KB_ORDER.length];
+    kbRef.current = next;
     setKb(next); try { localStorage.setItem(LS_LANG, next); } catch { /* ignore */ }
   };
   const hide = () => { setOpen(false); (document.activeElement as HTMLElement | null)?.blur?.(); detach(); };
@@ -248,49 +282,52 @@ export function VirtualKeyboard() {
   const fn = FN;
   const press = guard;
 
-  const rows = mode === 'num' || mode === 'tel' ? 4 : 5 + (kb === 'kk' && layer === 'alpha' ? 1 : 0);
+  const rows = mode === 'num' || mode === 'tel' || mode === 'pin' ? 4 : 5 + (kb === 'kk' && layer === 'alpha' ? 1 : 0);
   // клавиатура занимает не больше ~46% высоты экрана: на низком мониторе клавиши ниже, на высоком — до 56 px
-  const kh = `clamp(28px, calc((46dvh - ${64 + 8 * (rows - 1)}px) / ${rows}), ${mode === 'num' || mode === 'tel' ? 54 : 56}px)`;
+  const kh = `clamp(34px, calc((50dvh - ${70 + 6 * (rows - 1)}px) / ${rows}), ${mode === 'num' || mode === 'tel' || mode === 'pin' ? 70 : 66}px)`;
   const letters = LAYOUTS[kb];
   const cap = (c: string) => (shift !== 'off' && layer === 'alpha' ? c.toUpperCase() : c);
 
-  const onShift = () => setShift((s) => (s === 'off' ? 'once' : s === 'once' ? 'caps' : 'off'));
+  const onShift = () => {
+    const next = shiftRef.current === 'off' ? 'once' : shiftRef.current === 'once' ? 'caps' : 'off';
+    shiftRef.current = next;
+    setShift(next);
+  };
   const bottom = (
     <Row>
-      <KeyBtn wide={1.5} className={fn} onDown={() => setLayer(layer === 'alpha' ? 'sym' : 'alpha')}>{layer === 'alpha' ? '?123' : (kb === 'en' ? 'ABC' : 'АБВ')}</KeyBtn>
+      <KeyBtn wide={1.5} className={fn} title={layer === 'alpha' ? 'Символы и цифры' : 'Буквы'} onDown={() => setLayer(layer === 'alpha' ? 'sym' : 'alpha')}>{layer === 'alpha' ? '?123' : (kb === 'en' ? 'ABC' : 'АБВ')}</KeyBtn>
       <KeyBtn wide={1.7} className={cn(fn, 'gap-1.5 px-1 !text-[length:clamp(12px,calc(var(--kh)*0.32),16px)]')} onDown={setLang} title={t('Idioma')}><Globe size={15} className="shrink-0" />{KB_LABEL[kb]}</KeyBtn>
       {mode === 'email' && <KeyBtn wide={1} onDown={() => ch('@')}>@</KeyBtn>}
-      <KeyBtn wide={mode === 'email' ? 4 : 6} onDown={() => ch(' ')} title="Space"><span className="text-muted-foreground text-sm">{mode === 'email' ? '' : '␣'}</span></KeyBtn>
+      <KeyBtn wide={mode === 'email' ? 4 : 6} onDown={() => ch(' ')} title={kb === 'kk' ? 'Бос орын' : kb === 'en' ? 'Space' : 'Пробел'}><span className="vkb-space-label">{kb === 'kk' ? 'Бос орын' : kb === 'en' ? 'Space' : 'Пробел'}</span></KeyBtn>
       {mode === 'email' && <KeyBtn wide={1.3} className="text-[16px]" onDown={() => { const el = targetRef.current; if (el) insertText(el, '.kz', false); }}>.kz</KeyBtn>}
       <KeyBtn wide={1} onDown={() => ch('.')}>.</KeyBtn>
-      <KeyBtn wide={1.8} className="bg-primary border-primary text-primary-foreground" onDown={() => { const el = targetRef.current; if (el) pressEnter(el); }}>
+      <KeyBtn wide={1.8} className="vkb-key--enter" title="Enter" onDown={() => { const el = targetRef.current; if (el) pressEnter(el); }}>
         <CornerDownLeft size={20} />
       </KeyBtn>
     </Row>
   );
 
   return createPortal(
-    <RepCtx.Provider value={{ start: startRepeat, stop: stopRepeat }}>
+    <RepCtx.Provider value={repValue}>
     <div
-      ref={panelRef} role="application" aria-label={t('Teclado en pantalla')} data-vkb="panel"
-      onPointerDown={press} onMouseDown={press}
-      className="fixed inset-x-0 bottom-0 z-[200] border-t border-border bg-card/95 backdrop-blur-md shadow-[0_-12px_40px_rgba(0,0,0,.45)] sheet-up"
-      style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))', ['--kh' as string]: kh, ['--kf' as string]: 'clamp(13px, calc(var(--kh) * 0.38), 21px)' }}
+      ref={panelRef} role="group" aria-label={t('Teclado en pantalla')} data-vkb="panel"
+      className="vkb-shell fixed inset-x-0 bottom-0 z-[200]"
+      style={{ ['--kh' as string]: kh, ['--kf' as string]: 'clamp(15px, calc(var(--kh) * 0.38), 22px)' }}
     >
-      <div className={cn('mx-auto px-2 sm:px-3 pt-2 space-y-1.5 sm:space-y-2', mode === 'num' || mode === 'tel' ? 'max-w-[460px]' : 'max-w-[1180px]')}>
+      <div className={cn('vkb-inner mx-auto', mode === 'num' || mode === 'tel' || mode === 'pin' ? 'max-w-[460px]' : 'max-w-[1600px]')}>
         {/* верхняя полоска: поле, навигация, скрыть */}
-        <div className="flex items-center gap-2 px-1">
-          <button type="button" tabIndex={-1} data-vkb="off" data-sound="none" onPointerDown={(e) => { press(e); target && moveFocus(target, -1); }} onMouseDown={press}
-            className="h-8 w-9 rounded-lg bg-secondary text-muted-foreground flex items-center justify-center" aria-label={t('Campo anterior')}><ArrowLeftToLine size={16} /></button>
-          <button type="button" tabIndex={-1} data-vkb="off" data-sound="none" onPointerDown={(e) => { press(e); target && moveFocus(target, 1); }} onMouseDown={press}
-            className="h-8 w-9 rounded-lg bg-secondary text-muted-foreground flex items-center justify-center" aria-label={t('Siguiente campo')}><ArrowRightToLine size={16} /></button>
-          <div className="min-w-0 flex-1 truncate text-center text-xs text-muted-foreground">{label}</div>
-          <button type="button" tabIndex={-1} data-vkb="off" data-sound="none" onPointerDown={(e) => { press(e); hide(); }} onMouseDown={press}
-            className="h-8 px-3 rounded-lg bg-secondary text-muted-foreground flex items-center gap-1.5 text-xs font-medium"><ChevronDown size={16} />{t('Ocultar teclado')}</button>
+        <div className="vkb-toolbar">
+          <button type="button" data-vkb="off" data-sound="none" onPointerDown={(e) => { press(e); target && moveFocus(target, -1); }} onMouseDown={press} onClick={(e) => { if (e.detail === 0 && target) moveFocus(target, -1); }}
+            className="vkb-tool" aria-label={t('Campo anterior')}><ArrowLeftToLine size={17} /></button>
+          <button type="button" data-vkb="off" data-sound="none" onPointerDown={(e) => { press(e); target && moveFocus(target, 1); }} onMouseDown={press} onClick={(e) => { if (e.detail === 0 && target) moveFocus(target, 1); }}
+            className="vkb-tool" aria-label={t('Siguiente campo')}><ArrowRightToLine size={17} /></button>
+          <div className="vkb-target-label" aria-live="polite">{label}</div>
+          <button type="button" data-vkb="off" data-sound="none" onPointerDown={(e) => { press(e); hide(); }} onMouseDown={press} onClick={(e) => { if (e.detail === 0) hide(); }}
+            className="vkb-tool vkb-tool--hide"><ChevronDown size={17} />{t('Ocultar teclado')}</button>
         </div>
 
-        {mode === 'num' || mode === 'tel' ? (
-          <NumPad tel={mode === 'tel'} onChar={ch} onBack={doBack}
+        {mode === 'num' || mode === 'tel' || mode === 'pin' ? (
+          <NumPad tel={mode === 'tel'} pin={mode === 'pin'} onChar={ch} onBack={doBack}
             onClear={() => { const el = targetRef.current; if (el) clearAll(el); }} onEnter={() => { const el = targetRef.current; if (el) pressEnter(el); }} />
         ) : layer === 'alpha' ? (
           <>
@@ -299,9 +336,9 @@ export function VirtualKeyboard() {
             <Row>{letters[0].map((c) => <KeyBtn key={c} onDown={() => ch(c)}>{cap(c)}</KeyBtn>)}</Row>
             <Row>{letters[1].map((c) => <KeyBtn key={c} onDown={() => ch(c)}>{cap(c)}</KeyBtn>)}</Row>
             <Row>
-              <KeyBtn wide={1.5} className={shift === 'caps' ? 'bg-primary border-primary text-primary-foreground' : fn} active={shift === 'once'} onDown={onShift} title="Shift"><ArrowBigUp size={22} fill={shift !== 'off' ? 'currentColor' : 'none'} /></KeyBtn>
+              <KeyBtn wide={1.5} className={shift === 'caps' ? 'vkb-key--caps' : fn} active={shift === 'once'} pressed={shift !== 'off'} onDown={onShift} title="Shift"><ArrowBigUp size={22} fill={shift !== 'off' ? 'currentColor' : 'none'} /></KeyBtn>
               {letters[2].map((c) => <KeyBtn key={c} onDown={() => ch(c)}>{cap(c)}</KeyBtn>)}
-              <KeyBtn wide={1.5} className={fn} hold onDown={doBack}><Delete size={22} /></KeyBtn>
+              <KeyBtn wide={1.5} className={fn} hold onDown={doBack} title="Backspace"><Delete size={22} /></KeyBtn>
             </Row>
             {bottom}
           </>
@@ -309,7 +346,7 @@ export function VirtualKeyboard() {
           <>
             <Row>{DIGITS.map((d) => <KeyBtn key={d} onDown={() => ch(d)}>{d}</KeyBtn>)}</Row>
             <Row>{SYM1.map((c) => <KeyBtn key={c} onDown={() => ch(c)}>{c}</KeyBtn>)}</Row>
-            <Row>{SYM2.map((c) => <KeyBtn key={c} onDown={() => ch(c)}>{c}</KeyBtn>)}<KeyBtn wide={1.5} className={fn} hold onDown={doBack}><Delete size={22} /></KeyBtn></Row>
+            <Row>{SYM2.map((c) => <KeyBtn key={c} onDown={() => ch(c)}>{c}</KeyBtn>)}<KeyBtn wide={1.5} className={fn} hold onDown={doBack} title="Backspace"><Delete size={22} /></KeyBtn></Row>
             <Row>{SYM3.map((c) => <KeyBtn key={c} onDown={() => ch(c)}>{c}</KeyBtn>)}</Row>
             {bottom}
           </>
@@ -322,17 +359,25 @@ export function VirtualKeyboard() {
 }
 
 /* ───────── Цифровой блок (для чисел, количества, телефона) ───────── */
-function NumPad({ tel, onChar, onBack, onClear, onEnter }: {
-  tel: boolean; onChar: (c: string) => void; onBack: () => void; onClear: () => void; onEnter: () => void;
+function NumPad({ tel, pin, onChar, onBack, onClear, onEnter }: {
+  tel: boolean; pin: boolean; onChar: (c: string) => void; onBack: () => void; onClear: () => void; onEnter: () => void;
 }) {
-  const big = 'h-[calc(var(--kh)*1.18)] text-[length:calc(var(--kf)*1.3)]';
-  const R = ({ children }: { children: React.ReactNode }) => <div className="flex gap-1.5 sm:gap-2">{children}</div>;
+  const big = 'vkb-key--numeric';
+  const R = Row;
   const num = (d: string) => <KeyBtn key={d} className={big} onDown={() => onChar(d)}>{d}</KeyBtn>;
+  if (pin) return (
+    <div className="vkb-numpad" aria-label="PIN">
+      <R>{['1', '2', '3'].map(num)}</R>
+      <R>{['4', '5', '6'].map(num)}</R>
+      <R>{['7', '8', '9'].map(num)}</R>
+      <R><KeyBtn className={FN} onDown={onBack} hold title="Backspace"><Delete size={24} /></KeyBtn>{num('0')}<KeyBtn className="vkb-key--enter" onDown={onEnter} title="Enter"><CornerDownLeft size={24} /></KeyBtn></R>
+    </div>
+  );
   return (
-    <div className="space-y-1.5 sm:space-y-2 pb-1">
-      <R>{['7', '8', '9'].map(num)}<KeyBtn className={cn(big, FN)} onDown={onBack} hold><Delete size={26} /></KeyBtn></R>
+    <div className="vkb-numpad">
+      <R>{['7', '8', '9'].map(num)}<KeyBtn className={cn(big, FN)} onDown={onBack} hold title="Backspace"><Delete size={26} /></KeyBtn></R>
       <R>{['4', '5', '6'].map(num)}<KeyBtn className={cn(big, FN, 'text-lg')} onDown={onClear}>C</KeyBtn></R>
-      <R>{['1', '2', '3'].map(num)}<KeyBtn className={cn(big, 'bg-primary border-primary text-primary-foreground')} onDown={onEnter}><CornerDownLeft size={26} /></KeyBtn></R>
+      <R>{['1', '2', '3'].map(num)}<KeyBtn className={cn(big, 'vkb-key--enter')} onDown={onEnter} title="Enter"><CornerDownLeft size={26} /></KeyBtn></R>
       <R>
         <KeyBtn wide={tel ? 1 : 2} className={big} onDown={() => onChar('0')}>0</KeyBtn>
         {!tel && <KeyBtn className={big} onDown={() => onChar('00')}>00</KeyBtn>}

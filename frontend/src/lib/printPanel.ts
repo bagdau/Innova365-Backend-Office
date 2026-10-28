@@ -7,7 +7,7 @@ export interface PrintJob {
   /** HTML содержимого (предпросмотр и печать через браузер) */
   html: string;
   paper: Paper;
-  server?: { tipo: 'recibo' | 'cuenta' | 'cocina' | 'cierre'; pedidoId?: string };
+  server?: { tipo: 'recibo' | 'cuenta' | 'cocina' | 'cierre'; pedidoId?: string; periodo?: 'hoy' | 'semana' | 'mes' };
   /** сразу начать печать при открытии (чек после оплаты) */
   autoPrint?: boolean;
 }

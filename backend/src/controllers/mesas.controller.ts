@@ -14,7 +14,7 @@ export async function getMesas(req: Request, res: Response): Promise<void> {
         orderBy: { creadoEn: 'desc' },
         take: 1,
         include: {
-          mesero: { select: { nombre: true } },
+          mesero: { select: { nombre: true, rol: true } },
           items: {
             include: { producto: { select: { nombre: true } } },
           },
@@ -39,7 +39,7 @@ export async function getMesas(req: Request, res: Response): Promise<void> {
       id: m.id,
       numero: m.numero,
       capacidad: m.capacidad,
-      estado: m.estado,
+      estado: pedidoActivo ? 'OCUPADA' : m.estado,
       pedidoActivo,
       timerRestante,
       mesero: pedidoActivo?.mesero?.nombre ?? null,
@@ -66,6 +66,12 @@ export async function updateEstadoMesa(req: Request, res: Response): Promise<voi
     res.status(400).json({ error: 'Estado inválido' });
     return;
   }
+
+  if (estado === 'OCUPADA') throw new HttpError(400, 'Стол занимается автоматически при создании заказа');
+  const activos = await prisma.pedido.count({
+    where: { mesaId: id, restauranteId: req.restauranteId!, estado: { notIn: ['PAGADO', 'CANCELADO'] } },
+  });
+  if (activos > 0) throw new HttpError(409, 'У стола есть активный заказ — его состояние меняется через заказ');
 
   const mesa = await prisma.mesa.update({
     where: { id, restauranteId: req.restauranteId! },

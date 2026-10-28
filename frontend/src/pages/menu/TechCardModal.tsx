@@ -14,7 +14,7 @@ import { formatCurrency, cn } from '../../utils/cn';
 import { t, apiError } from '../../i18n';
 import type { Insumo, Producto } from '../../types';
 
-interface Row { k: string; ref: string; cant: string; neto: string }   // ref: 'i:<insumoId>' | 'p:<productoId>'
+interface Row { k: string; ref: string; cant: string; neto: string; cold: string; hot: string }   // ref: 'i:<insumoId>' | 'p:<productoId>'
 
 /** Единицы ввода: на кухне граммы и миллилитры, на складе — кг и литры. */
 const UNITS = (unidad: string) => (unidad === 'кг' ? { mult: 1000, label: 'г' } : unidad === 'л' ? { mult: 1000, label: 'мл' } : { mult: 1, label: unidad });
@@ -22,6 +22,8 @@ const inputCls = 'bg-muted border border-border rounded-m px-2.5 py-2 text-sm te
 let seq = 0;
 const newKey = () => `r${++seq}`;
 const round = (n: number, d = 3) => Math.round(n * 10 ** d) / 10 ** d;
+const effectiveNet = (r: Row) => r.cold || r.hot
+  ? String(round(Number(r.cant) * (1 - (Number(r.cold) || 0) / 100) * (1 - (Number(r.hot) || 0) / 100), 4)) : r.neto;
 
 /** Тех-карта (технологическая карта / тех-паспорт) блюда: состав на 1 порцию, себестоимость, технология. */
 export function TechCardModal({ producto, open, onClose }: { producto: Producto | null; open: boolean; onClose: () => void }) {
@@ -47,7 +49,7 @@ export function TechCardModal({ producto, open, onClose }: { producto: Producto 
     if (!card || !open) return;
     setRows(card.items.map((i) => {
       const u = i.tipo === 'insumo' ? UNITS(i.unidad) : { mult: 1, label: '' };
-      return { k: newKey(), ref: i.tipo === 'insumo' ? `i:${i.insumoId}` : `p:${i.componenteId}`, cant: String(round(i.cantidad * u.mult)), neto: i.neto === null ? '' : String(round(i.neto * u.mult)) };
+      return { k: newKey(), ref: i.tipo === 'insumo' ? `i:${i.insumoId}` : `p:${i.componenteId}`, cant: String(round(i.cantidad * u.mult)), neto: i.neto === null ? '' : String(round(i.neto * u.mult)), cold: i.coldLossPct === null ? '' : String(i.coldLossPct), hot: i.hotLossPct === null ? '' : String(i.hotLossPct) };
     }));
     setRend(card.rendimiento === null ? '' : String(card.rendimiento));
     setTec(card.tecnologia ?? '');
@@ -80,15 +82,17 @@ export function TechCardModal({ producto, open, onClose }: { producto: Producto 
   ];
 
   const patch = (k: string, p: Partial<Row>) => { setRows((rs) => rs.map((r) => (r.k === k ? { ...r, ...p } : r))); setDirty(true); };
-  const add = () => { setRows((rs) => [...rs, { k: newKey(), ref: '', cant: '', neto: '' }]); setDirty(true); };
+  const add = () => { setRows((rs) => [...rs, { k: newKey(), ref: '', cant: '', neto: '', cold: '', hot: '' }]); setDirty(true); };
   const del = (k: string) => { setRows((rs) => rs.filter((r) => r.k !== k)); setDirty(true); };
 
   const save = useMutation({
     mutationFn: () => {
       const items = rows.filter((r) => r.ref && Number(r.cant) > 0).map((r) => {
         const inf = lineInfo(r);
-        const neto = r.neto && Number(r.neto) > 0 ? Number(r.neto) / inf.mult : null;
-        return inf.isIns ? { insumoId: r.ref.slice(2), cantidad: Number(r.cant) / inf.mult, neto } : { componenteId: r.ref.slice(2), cantidad: Number(r.cant) };
+        const netValue = effectiveNet(r);
+        const neto = netValue.trim() ? Number(netValue) / inf.mult : null;
+        return inf.isIns ? { insumoId: r.ref.slice(2), cantidad: Number(r.cant) / inf.mult, neto,
+          coldLossPct: r.cold.trim() ? Number(r.cold) : null, hotLossPct: r.hot.trim() ? Number(r.hot) : null } : { componenteId: r.ref.slice(2), cantidad: Number(r.cant) };
       });
       return recetasService.save(id, { rendimiento: rend ? Number(rend) : null, tecnologia: tec.trim() || null, items });
     },
@@ -102,7 +106,7 @@ export function TechCardModal({ producto, open, onClose }: { producto: Producto 
     onError: (e) => toast.error(apiError(e, 'Error al guardar')),
   });
 
-  const missing = rows.some((r) => !r.ref || !(Number(r.cant) > 0));
+  const missing = rows.some((r) => !r.ref || !(Number(r.cant) > 0) || [r.cold, r.hot].some((v) => v.trim() && (!Number.isFinite(Number(v)) || Number(v) < 0 || Number(v) > 100)));
 
   return (
     <Modal open={open} onClose={onClose} title={`${t('Ficha técnica')} — ${producto?.nombre ?? ''}`} width="max-w-4xl">
@@ -129,11 +133,16 @@ export function TechCardModal({ producto, open, onClose }: { producto: Producto 
                     <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">{r.ref ? inf.unit : ''}</span>
                   </div>
                   <div className="relative">
-                    <input type="number" inputMode="decimal" min="0" step="any" value={r.neto} onChange={(e) => patch(r.k, { neto: e.target.value })} disabled={!inf.isIns} className={cn(inputCls, 'w-full pr-9 disabled:opacity-40')} aria-label={t('Neto')} />
+                    <input type="number" inputMode="decimal" min="0" step="any" value={effectiveNet(r)} onChange={(e) => patch(r.k, { neto: e.target.value })} disabled={!inf.isIns || !!(r.cold || r.hot)} className={cn(inputCls, 'w-full pr-9 disabled:opacity-40')} aria-label={t('Neto')} />
                     <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">{r.ref && inf.isIns ? inf.unit : ''}</span>
                   </div>
                   <span className="hidden sm:block text-right text-sm tabular-nums text-foreground">{inf.cost === null ? <span className="text-warning" title={t('Sin precio de compra')}>—</span> : formatCurrency(inf.cost)}</span>
                   <button type="button" onClick={() => del(r.k)} aria-label={t('Eliminar')} title={t('Eliminar')} className="p-2 rounded-m text-muted-foreground hover:text-error hover:bg-error/10"><Trash2 size={15} /></button>
+                  {inf.isIns && <div className="col-span-4 sm:col-span-5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <label>Холодная обработка, % <input type="number" min="0" max="100" step="0.01" value={r.cold} onChange={(e) => patch(r.k, { cold: e.target.value })} className={cn(inputCls, 'ml-1 w-20')} placeholder="—" /></label>
+                    <label>Горячая обработка, % <input type="number" min="0" max="100" step="0.01" value={r.hot} onChange={(e) => patch(r.k, { hot: e.target.value })} className={cn(inputCls, 'ml-1 w-20')} placeholder="—" /></label>
+                    <span>Нетто рассчитывается последовательно; со склада списывается брутто.</span>
+                  </div>}
                 </div>
               );
             })}
@@ -159,7 +168,7 @@ export function TechCardModal({ producto, open, onClose }: { producto: Producto 
           </div>
 
           <div className="flex flex-wrap gap-2 pt-1">
-            <Button type="button" variant="secondary" onClick={() => card && printTechCard({ ...card, items: rows.map((r) => { const inf = lineInfo(r); return { nombre: inf.name, unidad: inf.unit, bruto: Number(r.cant) || 0, neto: r.neto ? Number(r.neto) : null, costo: inf.cost }; }), rendimiento: rend ? Number(rend) : null, tecnologia: tec, costo: total, margen }, rest)} disabled={!card || rows.length === 0}>
+            <Button type="button" variant="secondary" onClick={() => card && printTechCard({ ...card, items: rows.map((r) => { const inf = lineInfo(r); return { nombre: inf.name, unidad: inf.unit, bruto: Number(r.cant) || 0, neto: effectiveNet(r) ? Number(effectiveNet(r)) : null, coldLossPct: r.cold ? Number(r.cold) : null, hotLossPct: r.hot ? Number(r.hot) : null, costo: inf.cost }; }), rendimiento: rend ? Number(rend) : null, tecnologia: tec, costo: total, margen }, rest)} disabled={!card || rows.length === 0}>
               <Printer size={14} /> {t('Imprimir ficha')}
             </Button>
             <div className="flex-1" />

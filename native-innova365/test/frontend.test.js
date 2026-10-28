@@ -12,7 +12,7 @@ const opened = [];
 test.after(() => { for (const close of opened) { try { close(); } catch { /* ignore */ } } });
 
 const BASE_CONFIG = {
-  version: 1, serverUrl: 'https://innova365.kz', officeUrl: '', fullscreen: false, kiosk: false, autoStart: false, closeToTray: false, zoom: 1,
+  version: 1, serverUrl: 'https://innova365.kz', activation: { active: true, restaurantName: 'Aisultan' }, officeUrl: '', fullscreen: false, kiosk: false, autoStart: false, closeToTray: false, zoom: 1,
   agent: { enabled: true, port: 9101, lan: false, token: 'a'.repeat(36), extraOrigins: ['https://x.kz'] },
   print: { silent: false, deviceName: '' }, window: {}, pinSet: false,
 };
@@ -26,6 +26,7 @@ function bridge(over = {}) {
   const api = {
     state: async () => { rec(['state']); return structuredClone(state); },
     unlock: async (pin) => { rec(['unlock', pin]); if (pin === '1234') { state.locked = false; return { ok: true }; } return { ok: false, error: 'Неверный PIN-код' }; },
+    activate: async (code) => { rec(['activate', code]); return code === 'ABCD-EFGH-JKLM' ? { ok: true, restaurantName: 'Aisultan' } : { ok: false, error: 'Неверный код' }; },
     save: async (patch) => { rec(['save', patch]); if (patch.serverUrl === 'bad') return { ok: false, error: 'Адрес указан неверно' }; Object.assign(state.config, patch.agent ? { agent: { ...state.config.agent, ...patch.agent, extraOrigins: String(patch.agent.extraOrigins).split(/\s+/).filter(Boolean) } } : patch); return { ok: true, config: structuredClone(state.config), agent: state.agent }; },
     setPin: async (pin) => { rec(['setPin', pin]); if (pin.length < 4) return { ok: false, error: 'PIN: от 4 до 16 символов' }; state.config.pinSet = true; return { ok: true, config: structuredClone(state.config), agent: state.agent }; },
     clearPin: async () => { rec(['clearPin']); state.config.pinSet = false; return { ok: true, config: structuredClone(state.config), agent: state.agent }; },
@@ -67,7 +68,7 @@ async function open(page, query, over) {
 const visible = (el) => !el.classList.contains('hide');
 
 test('CSP: страницы не используют inline-скрипты и стили', () => {
-  for (const f of ['settings.html', 'offline.html']) {
+  for (const f of ['settings.html', 'offline.html', 'activation.html']) {
     const h = fs.readFileSync(path.join(FRONT, f), 'utf8');
     assert.match(h, /Content-Security-Policy/); assert.match(h, /script-src 'self'/);
     assert.ok(!/<script(?![^>]*\bsrc=)[^>]*>/.test(h), f + ': inline script');
@@ -75,20 +76,20 @@ test('CSP: страницы не используют inline-скрипты и �
   }
 });
 
-test('settings: первый запуск — только мастер, сохранение адреса и закрытие окна', async () => {
-  const s = await open('settings.html', '?first=1', { state: { first: true, config: { ...BASE_CONFIG, serverUrl: '' } } });
-  assert.ok(visible(s.byId('first')) && !visible(s.byId('app')) && !visible(s.byId('lock')));
-  s.byId('f_server').value = 'innova365.kz';
-  await s.click('#f_check'); assert.match(s.byId('f_msg').textContent, /Сервер отвечает \(42 мс\)/);
+test('activation: only code, format and server response', async () => {
+  const s = await open('activation.html', '');
+  assert.equal(s.byId('code').placeholder, 'XXXX-XXXX-XXXX');
+  assert.equal(s.byId('f_server'), null);
+  s.byId('code').value = 'abcd-efgh-jklm';
+  s.byId('code').dispatchEvent(new s.w.Event('input'));
+  assert.equal(s.byId('code').value, 'ABCD-EFGH-JKLM');
   let closed = false; s.w.close = () => { closed = true; };
-  await s.click('#f_go');
-  assert.deepEqual(s.calls.find((c) => c[0] === 'save')[1], { serverUrl: 'innova365.kz' }); assert.ok(closed);
-  // ошибка адреса не закрывает окно
-  const s2 = await open('settings.html', '?first=1', { state: { first: true, config: { ...BASE_CONFIG, serverUrl: '' } } });
-  let closed2 = false; s2.w.close = () => { closed2 = true; };
-  s2.byId('f_server').value = 'bad'; await s2.click('#f_go');
-  assert.ok(!closed2); assert.match(s2.byId('f_msg').textContent, /неверно/);
-  s2.byId('f_server').value = 'down.kz'; await s2.click('#f_check'); assert.match(s2.byId('f_msg').textContent, /Не удалось подключиться: ERR_CONNECTION_REFUSED/);
+  await s.click('#activate');
+  assert.deepEqual(s.calls.find((c) => c[0] === 'activate'), ['activate', 'ABCD-EFGH-JKLM']);
+  assert.ok(closed);
+  const e = await open('activation.html', '');
+  e.byId('code').value = 'AAAA-BBBB-CCCC'; await e.click('#activate');
+  assert.match(e.byId('message').textContent, /Неверный код/);
 });
 
 test('settings: блокировка PIN — неверный и верный ввод', async () => {
@@ -101,7 +102,7 @@ test('settings: блокировка PIN — неверный и верный в
   s.state.config = structuredClone(BASE_CONFIG);
   await s.click('#unlock'); await tick(80);
   assert.ok(!visible(s.byId('lock')) && visible(s.byId('app')));
-  assert.equal(s.byId('serverUrl').value, 'https://innova365.kz');
+  assert.equal(s.byId('serverUrl'), null);
 });
 
 test('settings: подсказка выхода при ?hint=quit', async () => {
@@ -112,16 +113,11 @@ test('settings: подсказка выхода при ?hint=quit', async () => 
 
 test('settings: заполнение полей, вкладки, сохранение групп', async () => {
   const s = await open('settings.html', '');
-  assert.equal(s.byId('serverUrl').value, 'https://innova365.kz');
+  assert.equal(s.byId('serverUrl'), null);
   assert.equal(s.byId('agent.port').value, '9101'); assert.equal(s.byId('agent.lan').checked, false);
   assert.equal(s.byId('agent.extraOrigins').value, 'https://x.kz'); assert.equal(s.byId('token').value, 'a'.repeat(36));
   assert.match(s.byId('agentBadge').textContent, /работает :9101/); assert.ok(s.byId('agentBadge').classList.contains('good'));
-  await s.click('[data-tab=print]'); assert.ok(s.byId('pane-print').classList.contains('on')); assert.ok(!s.byId('pane-connection').classList.contains('on'));
-  // подключение
-  s.byId('officeUrl').value = 'office.innova365.kz';
-  await s.click('[data-save=connection]'); assert.deepEqual(s.calls.filter((c) => c[0] === 'save').pop()[1], { serverUrl: 'https://innova365.kz', officeUrl: 'office.innova365.kz' });
-  assert.equal(s.byId('m_connection').textContent, 'Сохранено');
-  s.byId('serverUrl').value = 'bad'; await s.click('[data-save=connection]'); assert.match(s.byId('m_connection').textContent, /неверно/); assert.ok(s.byId('m_connection').classList.contains('err'));
+  await s.click('[data-tab=print]'); assert.ok(s.byId('pane-print').classList.contains('on'));
   // агент
   s.byId('agent.port').value = '9200'; s.byId('agent.lan').checked = true; await s.click('[data-save=agent]');
   const p = s.calls.filter((c) => c[0] === 'save').pop()[1];

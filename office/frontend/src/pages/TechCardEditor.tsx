@@ -8,14 +8,15 @@ import { fmtDateTime, money, num, pct } from '../format';
 import { Badge, ErrorBox, Field, Loading, Modal, Spinner, useFetch, useUi } from '../ui';
 import { marginTone, STATUS_TONE } from './TechCards';
 
-interface CardItem { id: string; tipo: 'insumo' | 'plato'; insumoId: string | null; componenteId: string | null; nombre: string; unidad: string; cantidad: number; neto: number | null }
+interface CardItem { id: string; tipo: 'insumo' | 'plato'; insumoId: string | null; componenteId: string | null; nombre: string; unidad: string; cantidad: number; neto: number | null; coldLossPct: number | null; hotLossPct: number | null }
 interface Card {
   productoId: string; nombre: string; descripcion: string | null; categoria: string; precio: number; hasCard: boolean; rendimiento: number | null; tecnologia: string; items: CardItem[]; costo: number; incompleto: boolean; margen: number | null;
+  stock: { status: string; porciones: number | null; ingredients: { insumoId: string; nombre: string; unidad: string; porcion: number; stock: number; minimo: number; porciones: number; status: string }[]; movements: { id: string; insumoId: string; tipo: string; cantidad: number; saldo: number; motivo: string | null; creadoEn: string }[] };
   state: { status: string; statusLabel: string; version: number | null; comment: string | null; updatedBy: string | null; updatedAt: string | null; approvedBy: string | null; approvedAt: string | null };
   versions: { version: number; action: string; comment: string | null; user_name: string; created_at: string }[];
 }
 interface Options { insumos: { id: string; nombre: string; unidad: string; costo: number | null }[]; platos: { id: string; nombre: string; costo: number }[] }
-interface Row { k: number; kind: 'i' | 'p'; refId: string; qty: string; neto: string }
+interface Row { k: number; kind: 'i' | 'p'; refId: string; qty: string; neto: string; cold: string; hot: string }
 
 const ACTION: Record<string, string> = { import: 'Импорт', save: 'Сохранено', submit: 'На согласование', approve: 'Утверждена', reject: 'Возвращена', reopen: 'Возвращена в работу', restore: 'Восстановлена версия', delete: 'Удалена' };
 
@@ -24,6 +25,9 @@ const fac = (unit: string) => (unit === 'кг' || unit === 'л' ? 1000 : 1);
 const dispUnit = (unit: string) => (unit === 'кг' ? 'г' : unit === 'л' ? 'мл' : unit);
 const r4 = (x: number) => Math.round(x * 10000) / 10000;
 const toNum = (s: string) => Number(s.replace(',', '.'));
+const MOVEMENT: Record<string, string> = { INICIAL: 'Начальный остаток', COMPRA: 'Пополнение', AJUSTE: 'Корректировка', MERMA: 'Списание', REVISION: 'Инвентаризация', CONSUMO: 'Расход по заказу', DEVOLUCION: 'Возврат после отмены' };
+const netOf = (r: Row) => r.cold.trim() || r.hot.trim()
+  ? String(r4(toNum(r.qty) * (1 - (toNum(r.cold) || 0) / 100) * (1 - (toNum(r.hot) || 0) / 100))) : r.neto;
 
 export default function TechCardEditor() {
   const { id } = useParams();
@@ -50,13 +54,13 @@ export default function TechCardEditor() {
     if (!card || !opts) return;
     const rs: Row[] = card.items.map((it) => {
       const f = it.tipo === 'insumo' ? fac(it.unidad) : 1;
-      return { k: seq.current++, kind: it.tipo === 'insumo' ? 'i' : 'p', refId: (it.insumoId ?? it.componenteId)!, qty: String(r4(it.cantidad * f)), neto: it.neto === null ? '' : String(r4(it.neto * f)) };
+      return { k: seq.current++, kind: it.tipo === 'insumo' ? 'i' : 'p', refId: (it.insumoId ?? it.componenteId)!, qty: String(r4(it.cantidad * f)), neto: it.neto === null ? '' : String(r4(it.neto * f)), cold: it.coldLossPct === null ? '' : String(it.coldLossPct), hot: it.hotLossPct === null ? '' : String(it.hotLossPct) };
     });
     setRows(rs); setYield(card.rendimiento === null ? '' : String(card.rendimiento)); setTech(card.tecnologia); setComment('');
-    initial.current = JSON.stringify([rs.map((r) => [r.kind, r.refId, r.qty, r.neto]), card.rendimiento === null ? '' : String(card.rendimiento), card.tecnologia]);
+    initial.current = JSON.stringify([rs.map((r) => [r.kind, r.refId, r.qty, r.neto, r.cold, r.hot]), card.rendimiento === null ? '' : String(card.rendimiento), card.tecnologia]);
   }, [card, opts]);
 
-  const state = JSON.stringify([rows.map((r) => [r.kind, r.refId, r.qty, r.neto]), yieldV, tech]);
+  const state = JSON.stringify([rows.map((r) => [r.kind, r.refId, r.qty, r.neto, r.cold, r.hot]), yieldV, tech]);
   const dirty = !!card && state !== initial.current;
   useEffect(() => {
     const h = (e: BeforeUnloadEvent) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } };
@@ -92,7 +96,9 @@ export default function TechCardEditor() {
     rendimiento: yieldV.trim() ? toNum(yieldV) : null, tecnologia: tech,
     items: rows.filter((r) => r.refId).map((r) => {
       const f = r.kind === 'i' ? fac(insMap.get(r.refId)?.unidad ?? '') : 1;
-      return { insumoId: r.kind === 'i' ? r.refId : null, componenteId: r.kind === 'p' ? r.refId : null, cantidad: toNum(r.qty) / f, neto: r.neto.trim() ? toNum(r.neto) / f : null };
+      const neto = netOf(r);
+      return { insumoId: r.kind === 'i' ? r.refId : null, componenteId: r.kind === 'p' ? r.refId : null, cantidad: toNum(r.qty) / f,
+        neto: neto.trim() ? toNum(neto) / f : null, coldLossPct: r.cold.trim() ? toNum(r.cold) : null, hotLossPct: r.hot.trim() ? toNum(r.hot) : null };
     }),
     comment: comment.trim() || null,
   });
@@ -101,6 +107,7 @@ export default function TechCardEditor() {
     if (rows.some((r) => !r.refId)) return 'Выберите ингредиент в каждой строке или удалите пустые строки';
     if (rows.some((r) => !(toNum(r.qty) > 0))) return 'Количество в каждой строке должно быть больше нуля';
     if (rows.some((r) => r.neto.trim() && !(toNum(r.neto) >= 0))) return 'Нетто указано некорректно';
+    if (rows.some((r) => [r.cold, r.hot].some((v) => v.trim() && (!Number.isFinite(toNum(v)) || toNum(v) < 0 || toNum(v) > 100)))) return 'Потери при обработке должны быть от 0 до 100%';
     return null;
   };
 
@@ -148,8 +155,8 @@ export default function TechCardEditor() {
           <section className="card overflow-hidden">
             <div className="flex items-center justify-between border-b border-line px-4 py-3"><h2 className="font-semibold">Состав на 1 порцию</h2><span className="text-xs text-muted">кг и л вводятся в граммах и миллилитрах</span></div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[800px] text-[13.5px]">
-                <thead><tr><th className="th w-8">#</th><th className="th">Ингредиент / блюдо</th><th className="th w-[130px] text-right">Брутто</th><th className="th w-[130px] text-right">Нетто</th><th className="th w-[110px] text-right">Цена</th><th className="th w-[110px] text-right">Стоимость</th>{editable && <th className="th w-10" />}</tr></thead>
+              <table className="w-full min-w-[1050px] text-[13.5px]">
+                <thead><tr><th className="th w-8">#</th><th className="th">Ингредиент / блюдо</th><th className="th w-[110px] text-right">Брутто</th><th className="th w-[95px] text-right">Холодная, %</th><th className="th w-[95px] text-right">Горячая, %</th><th className="th w-[110px] text-right">Нетто</th><th className="th w-[100px] text-right">Цена</th><th className="th w-[100px] text-right">Стоимость</th>{editable && <th className="th w-10" />}</tr></thead>
                 <tbody>
                   {lines.map((l, i) => (
                     <tr key={l.r.k} className="hover:bg-surface2/40">
@@ -160,22 +167,32 @@ export default function TechCardEditor() {
                         {l.r.kind === 'p' && <span className="ml-2"><Badge tone="brand">блюдо (комбо)</Badge></span>}
                       </td>
                       <td className="td"><QtyInput disabled={!editable} value={l.r.qty} unit={l.unit} onChange={(v) => setRow(l.r.k, { qty: v })} /></td>
-                      <td className="td">{l.r.kind === 'i' ? <QtyInput disabled={!editable} value={l.r.neto} unit={l.unit} placeholder="—" onChange={(v) => setRow(l.r.k, { neto: v })} /> : <span className="block text-right text-muted">—</span>}</td>
+                      <td className="td">{l.r.kind === 'i' ? <input className="input tnum w-20 text-right" type="number" min="0" max="100" step="0.01" disabled={!editable} value={l.r.cold} onChange={(e) => setRow(l.r.k, { cold: e.target.value })} placeholder="—" /> : '—'}</td>
+                      <td className="td">{l.r.kind === 'i' ? <input className="input tnum w-20 text-right" type="number" min="0" max="100" step="0.01" disabled={!editable} value={l.r.hot} onChange={(e) => setRow(l.r.k, { hot: e.target.value })} placeholder="—" /> : '—'}</td>
+                      <td className="td">{l.r.kind === 'i' ? <QtyInput disabled={!editable || !!(l.r.cold || l.r.hot)} value={netOf(l.r)} unit={l.unit} placeholder="—" onChange={(v) => setRow(l.r.k, { neto: v })} /> : <span className="block text-right text-muted">—</span>}</td>
                       <td className="td tnum text-right text-muted">{l.price === null ? <span className="text-warn">нет цены</span> : money(l.price)}</td>
                       <td className="td tnum text-right font-medium">{l.cost === null ? '—' : money(l.cost)}</td>
                       {editable && <td className="td"><button className="btn btn-ghost btn-sm !px-1.5 hover:!text-bad" onClick={() => setRows((rs) => rs.filter((x) => x.k !== l.r.k))} title="Убрать"><X size={15} /></button></td>}
                     </tr>
                   ))}
-                  {!rows.length && <tr><td colSpan={7} className="td py-10 text-center text-muted"><Utensils size={30} className="mx-auto mb-2 text-muted/40" />{card.hasCard ? 'Состав пуст' : 'У блюда ещё нет техкарты. Добавьте ингредиенты.'}</td></tr>}
+                  {!rows.length && <tr><td colSpan={9} className="td py-10 text-center text-muted"><Utensils size={30} className="mx-auto mb-2 text-muted/40" />{card.hasCard ? 'Состав пуст' : 'У блюда ещё нет техкарты. Добавьте ингредиенты.'}</td></tr>}
                 </tbody>
               </table>
             </div>
             {editable && (
               <div className="flex flex-wrap gap-2 border-t border-line p-3">
-                <button className="btn btn-soft btn-sm" onClick={() => setRows((rs) => [...rs, { k: seq.current++, kind: 'i', refId: '', qty: '', neto: '' }])}><Plus size={14} /> Ингредиент</button>
-                <button className="btn btn-soft btn-sm" onClick={() => setRows((rs) => [...rs, { k: seq.current++, kind: 'p', refId: '', qty: '1', neto: '' }])}><Plus size={14} /> Другое блюдо (для комбо и сетов)</button>
+                <button className="btn btn-soft btn-sm" onClick={() => setRows((rs) => [...rs, { k: seq.current++, kind: 'i', refId: '', qty: '', neto: '', cold: '', hot: '' }])}><Plus size={14} /> Ингредиент</button>
+                <button className="btn btn-soft btn-sm" onClick={() => setRows((rs) => [...rs, { k: seq.current++, kind: 'p', refId: '', qty: '1', neto: '', cold: '', hot: '' }])}><Plus size={14} /> Другое блюдо (для комбо и сетов)</button>
               </div>
             )}
+          </section>
+
+          <section className="card p-4">
+            <div className="mb-3 flex flex-wrap items-center gap-3"><h2 className="font-semibold">Остатки по техкарте</h2><Badge tone={card.stock.status === 'low' ? 'bad' : card.stock.status === 'surplus' ? 'info' : card.stock.status === 'normal' ? 'good' : 'warn'}>{({ low: 'Заканчивается', surplus: 'В избытке', normal: 'В норме', none: 'Нет состава' } as Record<string, string>)[card.stock.status]}</Badge><span className="text-sm text-muted">Хватит на {card.stock.porciones ?? '—'} порций</span>{can('inv.view') && <Link className="ml-auto text-sm text-brand hover:underline" to="/inventory/stock">Пополнить склад →</Link>}</div>
+            <p className="mb-3 text-xs text-muted">Порог «заканчивается»: минимум склада или запас на 3 порции. Избыток: запас на 20 порций и не меньше двойного минимума. При заказе списывается брутто; холодная и горячая обработка рассчитывают нетто.</p>
+            <div className="overflow-x-auto"><table className="w-full min-w-[600px] text-sm"><thead><tr><th className="th">Ингредиент</th><th className="th text-right">На порцию</th><th className="th text-right">Остаток / минимум</th><th className="th text-right">Порций</th></tr></thead><tbody>{card.stock.ingredients.map((i) => <tr key={i.insumoId}><td className="td">{i.nombre}</td><td className="td text-right">{num(i.porcion, 3)} {i.unidad}</td><td className="td text-right">{num(i.stock, 3)} / {num(i.minimo, 3)} {i.unidad}</td><td className="td text-right">{i.porciones}</td></tr>)}</tbody></table></div>
+            <h3 className="mb-2 mt-4 text-sm font-semibold">Списание и пополнение</h3>
+            {card.stock.movements.length ? <div className="max-h-56 overflow-y-auto text-xs">{card.stock.movements.map((m) => <div key={m.id} className="flex flex-wrap justify-between gap-2 border-t border-line py-2"><span>{card.stock.ingredients.find((i) => i.insumoId === m.insumoId)?.nombre} · {MOVEMENT[m.tipo] ?? m.tipo}{m.motivo ? ` · ${m.motivo}` : ''}</span><span>{m.cantidad > 0 ? '+' : ''}{num(m.cantidad, 3)} · остаток {num(m.saldo, 3)} · {fmtDateTime(m.creadoEn)}</span></div>)}</div> : <p className="text-xs text-muted">Движений пока нет.</p>}
           </section>
 
           <section className="card p-4">

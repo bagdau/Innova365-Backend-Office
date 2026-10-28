@@ -6,18 +6,26 @@ import bcrypt from 'bcryptjs';
 import { HttpError } from '../idem';
 import { isOwner, isAdminRole } from '../roles';
 import { olvidarNombre } from '../audit';
+import { pinKey } from '../pin';
 
 
 export async function getUsuarios(req: Request, res: Response): Promise<void> {
   const usuarios = await prisma.usuario.findMany({
     where: { restauranteId: req.restauranteId! },
-    select: { id: true, nombre: true, email: true, rol: true, activo: true, creadoEn: true },
+    select: { id: true, nombre: true, email: true, rol: true, waiterPercent: true, activo: true, creadoEn: true, pinHash: true },
     orderBy: { nombre: 'asc' },
   });
-  res.json(usuarios);
+  res.json(usuarios.map(({ pinHash, ...usuario }) => ({ ...usuario, pinConfigured: !!pinHash })));
 }
 
-const SELECT_USUARIO = { id: true, nombre: true, email: true, rol: true, activo: true, creadoEn: true } as const;
+const SELECT_USUARIO = { id: true, nombre: true, email: true, rol: true, waiterPercent: true, activo: true, creadoEn: true, pinHash: true } as const;
+
+async function availablePin(pin: string, currentUserId?: string): Promise<string> {
+  const key = pinKey(pin);
+  const existing = await prisma.usuario.findUnique({ where: { pinKey: key }, select: { id: true } });
+  if (existing && existing.id !== currentUserId) throw new HttpError(409, 'Этот PIN уже назначен другому сотруднику');
+  return key;
+}
 
 /**
  * Иерархия: владелец (SUPERADMIN) управляет всеми; администратор — только кассирами, официантами и поварами.
@@ -43,28 +51,38 @@ async function guardUsuario(req: Request, target: { id: string; rol: string; act
 }
 
 export async function createUsuario(req: Request, res: Response): Promise<void> {
-  const { nombre, email, password, rol } = req.body;
+  const { nombre, email, password, rol, pin, waiterPercent } = req.body;
+  if (rol !== 'MESERO' && waiterPercent) throw new HttpError(400, 'Процент обслуживания можно назначить только официанту');
   await guardUsuario(req, null, { rol });
+  const key = pin ? await availablePin(pin) : null;
   const hash = await bcrypt.hash(password, 10);
   const usuario = await prisma.usuario.create({
-    data: { nombre, email, passwordHash: hash, rol, restauranteId: req.restauranteId! },
+    data: { nombre, email, passwordHash: hash, ...(pin ? { pinHash: await bcrypt.hash(pin, 10), pinKey: key } : {}), rol, waiterPercent: rol === 'MESERO' ? (waiterPercent ?? 0) : 0, restauranteId: req.restauranteId! },
     select: SELECT_USUARIO,
   });
-  res.status(201).json(usuario);
+  const { pinHash, ...safeUsuario } = usuario;
+  res.status(201).json({ ...safeUsuario, pinConfigured: !!pinHash });
 }
 
 export async function updateUsuario(req: Request, res: Response): Promise<void> {
   const { id } = req.params;
-  const { nombre, email, password, rol, activo } = req.body;
+  const { nombre, email, password, rol, activo, pin, clearPin, waiterPercent } = req.body;
   const target = await prisma.usuario.findFirst({ where: { id, restauranteId: req.restauranteId! }, select: { id: true, rol: true, activo: true } });
   if (!target) throw new HttpError(404, 'Usuario no encontrado');
+  if ((rol ?? target.rol) !== 'MESERO' && waiterPercent) throw new HttpError(400, 'Процент обслуживания можно назначить только официанту');
   await guardUsuario(req, target, { rol, activo });
+  const key = pin ? await availablePin(pin, id) : null;
 
   const data: any = { nombre, email, rol, activo };
+  if (rol && rol !== 'MESERO') data.waiterPercent = 0;
+  else if (waiterPercent !== undefined) data.waiterPercent = waiterPercent;
   if (password) data.passwordHash = await bcrypt.hash(password, 10);
+  if (pin) { data.pinHash = await bcrypt.hash(pin, 10); data.pinKey = key; data.pinAttempts = 0; data.pinLockedUntil = null; }
+  if (clearPin) { data.pinHash = null; data.pinKey = null; data.pinAttempts = 0; data.pinLockedUntil = null; }
   const usuario = await prisma.usuario.update({ where: { id }, data, select: SELECT_USUARIO });
   olvidarNombre(id);
-  res.json(usuario);
+  const { pinHash, ...safeUsuario } = usuario;
+  res.json({ ...safeUsuario, pinConfigured: !!pinHash });
 }
 
 export async function getPerfil(req: Request, res: Response): Promise<void> {
@@ -121,12 +139,12 @@ export async function getRestaurante(req: Request, res: Response): Promise<void>
 }
 
 export async function updateRestaurante(req: Request, res: Response): Promise<void> {
-  const { nombre, direccion, telefono, timerMesa, pieTicket, qrTicket, moneda, qrPago } = req.body;
+  const { nombre, direccion, telefono, timerMesa, pieTicket, qrTicket, moneda, qrPago, printSettings } = req.body;
   if (moneda !== undefined && !isCurrency(moneda)) throw new HttpError(400, 'Moneda no admitida');
   const antes = await prisma.restaurante.findUnique({ where: { id: req.restauranteId! }, select: { nombre: true } });
   const restaurante = await prisma.restaurante.update({
     where: { id: req.restauranteId! },
-    data: { nombre, direccion, telefono, timerMesa, pieTicket, qrTicket, moneda, qrPago },
+    data: { nombre, direccion, telefono, timerMesa, pieTicket, qrTicket, moneda, qrPago, printSettings },
   });
   // Автопереименование учётных данных: при смене названия меняем домен почт сотрудников.
   let correos: { dominio: string; cambios: number } | null = null;

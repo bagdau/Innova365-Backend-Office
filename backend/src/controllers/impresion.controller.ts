@@ -6,6 +6,7 @@ import { imprimir, imprimirPrueba, estadoImpresoras, generarBytes, TipoImpresion
 import { assertHostAllowed, listAgentPrinters, sendToPrinter } from '../print/transport';
 import { olvidar } from '../print/health';
 import { descubrir, comprobar, isPrivateSubnet, isPrivateHost, assertPort } from '../print/discovery';
+import type { CashReportPeriod } from '../print/cash-report';
 
 const mask = <T extends { token: string | null }>(p: T) => ({ ...p, token: p.token ? '••••••' : null, tieneToken: !!p.token });
 
@@ -60,10 +61,11 @@ export async function agentePrinters(req: Request, res: Response): Promise<void>
 }
 
 export async function imprimirDocumento(req: Request, res: Response): Promise<void> {
-  const { tipo, pedidoId, impresoraId, lang } = req.body as { tipo: Exclude<TipoImpresion, 'prueba'>; pedidoId?: string; impresoraId?: string; lang?: 'ru' | 'en' };
+  const { tipo, pedidoId, impresoraId, lang, periodo } = req.body as { tipo: Exclude<TipoImpresion, 'prueba'>; pedidoId?: string; impresoraId?: string; lang?: 'ru' | 'en'; periodo?: CashReportPeriod };
   if (tipo === 'cierre' && !isAdminRole(req.user!.rol) && req.user!.rol !== 'CAJERO') throw new HttpError(403, 'Sin permisos para esta acción');
   if (tipo === 'recibo' && req.user!.rol === 'MESERO') throw new HttpError(403, 'Sin permisos para esta acción');
-  const out = await imprimir({ restauranteId: req.restauranteId!, tipo, pedidoId, impresoraId, lang, usuarioId: req.user!.userId });
+  if (periodo && !['hoy', 'semana', 'mes'].includes(periodo)) throw new HttpError(400, 'Datos inválidos');
+  const out = await imprimir({ restauranteId: req.restauranteId!, tipo, pedidoId, impresoraId, lang, periodo, usuarioId: req.user!.userId });
   res.json(out);
 }
 
@@ -105,17 +107,18 @@ export async function getEstado(req: Request, res: Response): Promise<void> {
   res.json(await estadoImpresoras(req.restauranteId!));
 }
 
-type Doc = { tipo?: string; pedidoId?: string; ancho?: number; codepage?: string; corte?: boolean; cajon?: boolean; lang?: string };
+type Doc = { tipo?: string; pedidoId?: string; ancho?: number; codepage?: string; corte?: boolean; cajon?: boolean; lang?: string; periodo?: string };
 
 async function bytesDe(req: Request, b: Doc) {
   const tipo = b.tipo as Exclude<TipoImpresion, 'prueba'> | 'prueba';
   if (!['recibo', 'cuenta', 'cocina', 'cierre', 'prueba'].includes(String(tipo))) throw new HttpError(400, 'Datos inválidos');
   if (tipo === 'cierre' && !isAdminRole(req.user!.rol) && req.user!.rol !== 'CAJERO') throw new HttpError(403, 'Sin permisos para esta acción');
   if (tipo === 'recibo' && req.user!.rol === 'MESERO') throw new HttpError(403, 'Sin permisos para esta acción');
+  if (b.periodo && !['hoy', 'semana', 'mes'].includes(b.periodo)) throw new HttpError(400, 'Datos inválidos');
   if (['recibo', 'cuenta', 'cocina'].includes(tipo) && !b.pedidoId) throw new HttpError(400, 'Datos inválidos');
   const ancho = Math.min(120, Math.max(40, Number(b.ancho) || 80));
   const codepage = ['cp866', 'cp1251', 'ascii'].includes(String(b.codepage)) ? String(b.codepage) : 'cp866';
-  return generarBytes({ restauranteId: req.restauranteId!, tipo, pedidoId: b.pedidoId, ancho, codepage, corte: b.corte !== false, cajon: !!b.cajon, lang: b.lang === 'en' ? 'en' : 'ru' });
+  return generarBytes({ restauranteId: req.restauranteId!, tipo, pedidoId: b.pedidoId, ancho, codepage, corte: b.corte !== false, cajon: !!b.cajon, lang: b.lang === 'en' ? 'en' : 'ru', periodo: b.periodo as CashReportPeriod | undefined });
 }
 
 /** ESC/POS-байты документа для печати через агент на ПК кассы (сервер в интернете принтер не видит). */

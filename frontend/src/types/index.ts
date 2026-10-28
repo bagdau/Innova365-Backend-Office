@@ -11,6 +11,7 @@ export interface Restaurante {
   telefono?: string;
   pieTicket?: string;
   qrTicket?: string;
+  printSettings?: import('../lib/printSettings').PrintSettings | null;
   timerMesa: number;
 }
 
@@ -19,7 +20,9 @@ export interface Usuario {
   nombre: string;
   email: string;
   rol: Rol;
+  waiterPercent?: number;
   activo: boolean;
+  pinConfigured?: boolean;
   restauranteId: string;
   restaurante?: { id: string; nombre: string };
   creadoEn: string;
@@ -84,12 +87,20 @@ export interface Pedido {
   mesaId?: string;
   mesa?: { numero: number } | null;
   meseroId?: string;
-  mesero?: { nombre: string } | null;
+  mesero?: { nombre: string; rol?: Rol } | null;
+  cocineroId?: string | null;
+  cocineroNombre?: string | null;
   restauranteId: string;
   items: ItemPedido[];
   pagado: boolean;
   metodoPago?: string;
+  cajeroNombre?: string | null;
+  cajeroRol?: string | null;
   total?: number;
+  servicePercent?: number;
+  serviceAmount?: number;
+  serviceDecimals?: number;
+  pagadoEn?: string | null;
   tiempoInicio?: string;
   tiempoListo?: string;
   creadoEn: string;

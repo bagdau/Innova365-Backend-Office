@@ -17,6 +17,7 @@ export const ROUTE_ROLES = {
   entregas:      ['ADMIN', 'REPARTIDOR'],
   mesero:        ['ADMIN', 'MESERO'],
   menu:          ['ADMIN'],
+  techcards:     ['ADMIN', 'CAJERO'],
   inventario:    ['ADMIN'],
   reportes:      ['ADMIN', 'CAJERO'],
   caja:          ['ADMIN', 'CAJERO'],
@@ -62,6 +63,7 @@ export function homeFor(rol: Rol | undefined): string {
   switch (rol) {
     case 'COCINERO': return '/cocina';
     case 'CAJERO':   return '/caja';
+    case 'MESERO':   return '/mesero';
     case 'REPARTIDOR': return '/entregas';
     case undefined:  return '/login';
     default:         return '/dashboard';

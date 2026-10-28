@@ -10,7 +10,9 @@ import { startDbNotify } from './dbnotify';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = Number(process.env.PORT || 3001);
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) throw new Error('Неверный порт backend');
+const HOST = process.env.HOST || '0.0.0.0';
 
 const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',');
 app.use(cors({
@@ -31,8 +33,8 @@ app.use('/api', router);
 // Error handler GLOBAL — siempre al final
 app.use(errorHandler);
 
-app.listen(PORT, () => {
-  console.log(`🚀 Innova365 backend corriendo en http://localhost:${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`🚀 Innova365 backend corriendo en http://${HOST}:${PORT}`);
   startDbNotify();
 });
 

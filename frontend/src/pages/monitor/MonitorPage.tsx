@@ -61,7 +61,7 @@ export default function MonitorPage() {
       <div className="flex gap-2 flex-wrap items-center">
         <span className="text-xs text-muted-foreground mr-1">{t('Abrir pantalla de:')}</span>
         <Button size="sm" variant="secondary" onClick={() => navigate('/cocina')}><ChefHat size={14} /> {t('Cocina')}</Button>
-        <Button size="sm" variant="secondary" onClick={() => navigate('/mesero')}><Smartphone size={14} /> {t('Mesero')}</Button>
+        <Button size="sm" variant="secondary" onClick={() => navigate('/mesero')}><Smartphone size={14} /> {t('Trabajo en sala')}</Button>
         <Button size="sm" variant="secondary" onClick={() => navigate('/caja')}><Wallet size={14} /> {t('Caja')}</Button>
       </div>
 
@@ -110,7 +110,7 @@ export default function MonitorPage() {
                   <div className={cn('px-3 py-2 flex items-center justify-between', prep ? 'bg-info/10' : 'bg-warning/10')}>
                     <div>
                       <p className="font-bold text-foreground leading-tight">{donde(p)}</p>
-                      <p className="text-[11px] text-muted-foreground">№{p.numero}{p.mesero ? ` · ${p.mesero.nombre}` : ''}</p>
+                      <p className="text-[11px] text-muted-foreground">№{p.numero}{p.mesero ? ` · ${t('Pedido registrado por')}: ${p.mesero.nombre}` : ''}</p>
                     </div>
                     <div className="text-right">
                       <p className={cn('text-lg font-black leading-none', ageTone(min))}>{min}<span className="text-xs font-medium"> {t('min')}</span></p>
@@ -142,7 +142,7 @@ export default function MonitorPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="bg-muted/50 text-xs uppercase text-muted-foreground">
-                <th className="text-left px-4 py-2.5">№</th><th className="text-left px-4 py-2.5">{t('Mesa')}</th><th className="text-left px-4 py-2.5">{t('Mesero')}</th>
+                <th className="text-left px-4 py-2.5">№</th><th className="text-left px-4 py-2.5">{t('Mesa')}</th><th className="text-left px-4 py-2.5">{t('Pedido registrado por')}</th>
                 <th className="text-left px-4 py-2.5">{t('Progreso')}</th><th className="text-left px-4 py-2.5">{t('Estado')}</th><th className="text-right px-4 py-2.5">{t('Total')}</th><th className="px-4 py-2.5" />
               </tr></thead>
               <tbody>

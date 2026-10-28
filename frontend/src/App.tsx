@@ -15,6 +15,7 @@ const NuevoPedidoPage = lazy(() => import('./pages/pedidos/NuevoPedidoPage'));
 const HistorialPage = lazy(() => import('./pages/pedidos/HistorialPage'));
 const CocinaPage = lazy(() => import('./pages/cocina/CocinaPage'));
 const MenuPage = lazy(() => import('./pages/menu/MenuPage'));
+const TechCardsPage = lazy(() => import('./pages/techcards/TechCardsPage'));
 const InventarioPage = lazy(() => import('./pages/inventario/InventarioPage'));
 const ReportesPage = lazy(() => import('./pages/reportes/ReportesPage'));
 const CajaPage = lazy(() => import('./pages/caja/CajaPage'));
@@ -113,6 +114,8 @@ export default function App() {
             <MenuPage />
           </ProtectedRoute>
         } />
+        <Route path="/techcards" element={<ProtectedRoute route="techcards"><TechCardsPage /></ProtectedRoute>} />
+        <Route path="/techcards/:id" element={<ProtectedRoute route="techcards"><TechCardsPage /></ProtectedRoute>} />
         <Route path="/inventario" element={
           <ProtectedRoute route="inventario">
             <InventarioPage />

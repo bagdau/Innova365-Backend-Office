@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, Trash2, Search, ImagePlus, ChefHat, Coffee, ClipboardList } from 'lucide-react';
 import { useForm, Controller } from 'react-hook-form';
@@ -256,6 +257,7 @@ export default function MenuPage() {
                     {rs.porciones !== null && <> · <span className={cn(rs.porciones <= 5 && 'text-error font-semibold')}>{t('{n} porc.', { n: rs.porciones })}</span></>}
                   </p></>
                 ) : <p className="text-[10px] sm:text-[11px] text-warning leading-tight"><span className="sm:hidden">⚠</span><span className="hidden sm:inline">{t('Sin ficha técnica')}</span></p>; })()}
+                {(() => { const status = recetaOf.get(prod.id)?.stockStatus; return status && status !== 'none' ? <Link to={`/techcards/${prod.id}`} className={cn('text-[10px] sm:text-[11px] font-semibold hover:underline', status === 'low' ? 'text-error' : status === 'surplus' ? 'text-info' : 'text-success')}>{status === 'low' ? 'Заканчивается' : status === 'surplus' ? 'В избытке' : 'В норме'} →</Link> : null; })()}
                 <div className="flex gap-1 sm:gap-1.5 mt-auto pt-0.5 sm:pt-1">
                   <button onClick={() => setTechProd(prod)} aria-label={t('Ficha técnica')} title={t('Ficha técnica')}
                     className="flex-1 sm:flex-none flex items-center justify-center px-1 sm:px-2.5 py-1.5 bg-primary/10 text-primary text-xs rounded-lg hover:bg-primary/20 transition-colors">

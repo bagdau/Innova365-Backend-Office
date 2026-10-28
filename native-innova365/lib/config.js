@@ -9,10 +9,12 @@ const path = require('path');
 const crypto = require('crypto');
 const { normalizeServerUrl, originOf } = require('./url');
 const pinlib = require('./pin');
+const { SERVICE_URL } = require('./activation');
 
 const DEFAULTS = Object.freeze({
   version: 1,
   serverUrl: '',            // адрес кассы (innova365.kz)
+  activation: { installationId: '', token: '', restaurantId: '', restaurantName: '' },
   officeUrl: '',            // адрес Office (необязательно) — открывается из меню
   fullscreen: false,        // запускать на весь экран
   kiosk: false,             // режим киоска: без рамки, выход только через PIN/меню
@@ -92,13 +94,25 @@ class Config {
         const { value } = sanitize(parsed, DEFAULTS);
         // pin доверяем только как корректную пару hex-строк
         if (isObj(parsed.pin) && /^[0-9a-f]+$/i.test(parsed.pin.salt || '') && /^[0-9a-f]+$/i.test(parsed.pin.hash || '')) value.pin = { salt: parsed.pin.salt, hash: parsed.pin.hash };
+        if (isObj(parsed.activation)) {
+          const a = parsed.activation;
+          value.activation = {
+            installationId: /^[0-9a-f-]{36}$/i.test(a.installationId || '') ? a.installationId : '',
+            token: /^[a-f0-9]{64}$/i.test(a.token || '') ? a.token : '',
+            restaurantId: str(a.restaurantId, 100, ''),
+            restaurantName: str(a.restaurantName, 150, ''),
+          };
+        }
+        value.serverUrl = value.activation.token ? SERVICE_URL : '';
         this.data = value;
       } catch {
         try { fs.renameSync(this.file, this.file + '.bak'); } catch { /* ignore */ }
         this.data = clone(DEFAULTS);
       }
     }
-    if (!this.data.agent.token) { this.data.agent.token = crypto.randomBytes(18).toString('hex'); this.save(); }
+    if (!this.data.agent.token) this.data.agent.token = crypto.randomBytes(18).toString('hex');
+    if (!this.data.activation.installationId) this.data.activation.installationId = crypto.randomUUID();
+    this.save();
   }
 
   save() {
@@ -112,13 +126,15 @@ class Config {
   get() { return clone(this.data); }
 
   /** Копия для интерфейса настроек: хеш PIN наружу не отдаётся. */
-  view() { const v = clone(this.data); v.pinSet = !!v.pin; delete v.pin; return v; }
+  view() { const v = clone(this.data); v.pinSet = !!v.pin; delete v.pin; v.activation = { active: this.hasActivation(), restaurantName: v.activation.restaurantName }; return v; }
 
   /** Применяет частичное изменение; при ошибках в значимых полях ничего не сохраняет. */
   update(patch) {
     const { value, errors } = sanitize(patch, this.data);
     if (errors.length) return { ok: false, errors };
     value.pin = this.data.pin;                      // PIN меняется только через setPin/clearPin
+    value.activation = this.data.activation;
+    value.serverUrl = this.hasActivation() ? SERVICE_URL : '';
     if (!value.agent.token) value.agent.token = this.data.agent.token;
     this.data = value;
     this.save();
@@ -130,6 +146,21 @@ class Config {
   checkPin(pin) { return !this.data.pin || pinlib.verifyPin(pin, this.data.pin); }
   hasPin() { return !!this.data.pin; }
   newToken() { this.data.agent.token = crypto.randomBytes(18).toString('hex'); this.save(); return this.data.agent.token; }
+  hasActivation() { return !!(this.data.activation.token && this.data.activation.restaurantId); }
+  activate(token, restaurant) {
+    if (!/^[a-f0-9]{64}$/i.test(token) || !restaurant || typeof restaurant.id !== 'string' || typeof restaurant.name !== 'string') throw new Error('Неверный ответ сервера');
+    this.data.activation.token = token;
+    this.data.activation.restaurantId = restaurant.id;
+    this.data.activation.restaurantName = restaurant.name;
+    this.data.serverUrl = SERVICE_URL;
+    this.save();
+  }
+  clearActivation() {
+    const installationId = this.data.activation.installationId;
+    this.data.activation = { installationId, token: '', restaurantId: '', restaurantName: '' };
+    this.data.serverUrl = '';
+    this.save();
+  }
 }
 
 module.exports = { Config, DEFAULTS, sanitize };

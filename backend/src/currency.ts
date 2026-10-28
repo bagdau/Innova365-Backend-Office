@@ -6,8 +6,8 @@ export const CURRENCIES: Record<string, number> = {
 export const DEFAULT_CURRENCY = 'KZT';
 export const isCurrency = (c: unknown): c is string => typeof c === 'string' && c in CURRENCIES;
 
-/** Сумма для термопринтера. В кодировках cp866/cp1251 нет ₸ ₽ ⃀, поэтому печатаем ISO-код: «1500 KZT». */
+/** Сумма для ESC/POS. Знак ₸ выводится отдельным графическим символом в EscPos.text(). */
 export function moneyCode(n: number, code?: string | null): string {
   const c = code && isCurrency(code) ? code : DEFAULT_CURRENCY;
-  return `${n.toFixed(CURRENCIES[c])} ${c}`;
+  return `${n.toFixed(CURRENCIES[c])} ${c === 'KZT' ? '₸' : c}`;
 }

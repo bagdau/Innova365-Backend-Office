@@ -10,14 +10,20 @@ import { cn } from '../../utils/cn';
 import { Select } from '../../components/ui/Select';
 import { t, apiError } from '../../i18n';
 import PrintersSettings from './PrintersSettings';
+import PrintEditor from './PrintEditor';
+import DesktopActivation from './DesktopActivation';
+import BillingStatus from './BillingStatus';
+import { useAuthStore } from '../../store/authStore';
 import { CURRENCIES, currencyName } from '../../lib/currency';
 
-const TABS = ['General', 'Pagos y moneda', 'Mesas', 'Impresoras', 'Notificaciones'];
+const TABS = ['General', 'Pagos y moneda', 'Mesas', 'Impresoras', 'Чеки и отчёты', 'Notificaciones', 'Приложение'];
 
 export default function ConfiguracionPage() {
   const [tab, setTab] = useState('General');
   const [timer, setTimer] = useState<number>(45);
   const qc = useQueryClient();
+  const owner = useAuthStore((st) => st.user?.rol === 'SUPERADMIN' || st.user?.rol === 'ADMIN');
+  const billingOwner = useAuthStore((st) => st.user?.rol === 'SUPERADMIN');
 
   const { data: restaurante } = useQuery<Restaurante>({ queryKey: ['restaurante'], queryFn: reportesService.getRestaurante });
   const { data: mesas = [] } = useQuery<Mesa[]>({ queryKey: ['mesas'], queryFn: mesasService.getAll });
@@ -67,7 +73,7 @@ export default function ConfiguracionPage() {
     <div className="flex flex-col md:flex-row gap-4 md:gap-6">
       {/* Разделы: на телефоне — горизонтальная лента, на планшете/десктопе — колонка слева */}
       <div className="md:w-44 md:flex-shrink-0 flex md:block gap-1.5 md:space-y-1 overflow-x-auto pb-1 md:pb-0 -mx-1 px-1">
-        {TABS.map((tabName) => (
+        {TABS.filter((name) => name !== 'Приложение' || owner).map((tabName) => (
           <button key={tabName} onClick={() => setTab(tabName)}
             className={cn('md:w-full text-left px-3 py-2.5 rounded-m text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0', tab === tabName ? 'bg-primary text-white' : 'text-muted-foreground hover:text-foreground hover:bg-muted')}>
             {t(tabName)}
@@ -141,6 +147,8 @@ export default function ConfiguracionPage() {
         )}
 
         {tab === 'Impresoras' && <PrintersSettings />}
+        {tab === 'Чеки и отчёты' && <PrintEditor restaurante={restaurante} />}
+        {tab === 'Приложение' && owner && <div className="space-y-4">{billingOwner && <BillingStatus />}<DesktopActivation /></div>}
 
         {tab === 'Notificaciones' && (
           <div className="bg-card border border-border rounded-l p-6">

@@ -11,11 +11,13 @@ router.use('/tc', auth);
 
 const STATUS_LABEL: Record<string, string> = { none: 'Нет карты', draft: 'Черновик', review: 'На согласовании', approved: 'Утверждена', rejected: 'Возвращена' };
 
-interface ItemIn { insumoId?: string | null; componenteId?: string | null; cantidad: number; neto?: number | null }
+interface ItemIn { insumoId?: string | null; componenteId?: string | null; cantidad: number; neto?: number | null; coldLossPct?: number | null; hotLossPct?: number | null }
 const itemSchema = z.object({
   insumoId: z.string().min(1).nullish(), componenteId: z.string().min(1).nullish(),
   cantidad: z.number({ invalid_type_error: 'Количество должно быть числом' }).positive('Количество должно быть больше нуля').max(1_000_000),
   neto: z.number().min(0).max(1_000_000).nullish(),
+  coldLossPct: z.number().min(0).max(100).nullish(),
+  hotLossPct: z.number().min(0).max(100).nullish(),
 });
 const recipeSchema = z.object({
   rendimiento: z.number().min(0).max(1_000_000).nullish(),
@@ -39,11 +41,13 @@ router.get('/tc/cards', need('tc.view'), ah(async (req, res) => {
   const rows = [...model.productos.values()].map((p) => {
     const r = model.recetas.get(p.id);
     const c = model.costOf(p.id);
+    const stock = model.availabilityOf(p.id);
     const s = st.get(p.id);
     const status = r ? (s?.status ?? 'draft') : 'none';
     return {
       productoId: p.id, nombre: p.nombre, categoria: cat.get(p.categoriaId) ?? '', categoriaId: p.categoriaId, precio: p.precio, disponible: p.disponible,
       hasCard: !!r, items: r?.items.length ?? 0, costo: round2(c.costo), incompleto: c.incompleto, margen: r ? marginOf(c.costo, p.precio) : null,
+      stockStatus: stock.status, portionsAvailable: stock.porciones,
       status, statusLabel: STATUS_LABEL[status], version: s?.version ?? null, updatedAt: s?.updated_at ?? null, updatedBy: s?.updated_by ?? null, comment: s?.comment ?? null,
     };
   }).sort((a, b) => a.categoria.localeCompare(b.categoria, 'ru') || a.nombre.localeCompare(b.nombre, 'ru'));
@@ -58,25 +62,29 @@ async function card(rid: string, productoId: string, model?: CostModel) {
   const p = m.productos.get(productoId);
   if (!p) throw new HttpError(404, 'Блюдо не найдено');
   const r = m.recetas.get(productoId);
-  const [state, versions, cat] = await Promise.all([
+  const stock = m.availabilityOf(productoId);
+  const [state, versions, cat, movements] = await Promise.all([
     q1('select * from office.tc_state where producto_id = $1', [productoId]),
     q('select version, action, comment, user_name, created_at from office.tc_version where producto_id = $1 order by version desc, id desc limit 100', [productoId]),
     q1('select nombre from public."Categoria" where id = $1', [p.categoriaId]),
+    stock.ingredients.length ? q(`select id, "insumoId", tipo, cantidad, saldo, motivo, "creadoEn" from public."MovimientoInventario"
+      where "restauranteId" = $1 and "insumoId" = any($2::text[]) order by "creadoEn" desc limit 50`, [rid, stock.ingredients.map((i) => i.insumoId)]) : [],
   ]);
   const items = (r?.items ?? []).map((it) => {
     if (it.insumoId) {
       const i = m.insumos.get(it.insumoId);
-      return { id: it.id, tipo: 'insumo' as const, insumoId: it.insumoId, componenteId: null, nombre: i?.nombre ?? '—', unidad: i?.unidad ?? '', cantidad: it.cantidad, neto: it.neto, precioUnit: i?.costo ?? null, costo: i && i.costo !== null ? round2(it.cantidad * i.costo) : null };
+      return { id: it.id, tipo: 'insumo' as const, insumoId: it.insumoId, componenteId: null, nombre: i?.nombre ?? '—', unidad: i?.unidad ?? '', cantidad: it.cantidad, neto: it.neto, coldLossPct: it.coldLossPct, hotLossPct: it.hotLossPct, precioUnit: i?.costo ?? null, costo: i && i.costo !== null ? round2(it.cantidad * i.costo) : null };
     }
     const comp = m.productos.get(it.componenteId!);
     const cc = m.costOf(it.componenteId!);
-    return { id: it.id, tipo: 'plato' as const, insumoId: null, componenteId: it.componenteId, nombre: comp?.nombre ?? '—', unidad: 'порц.', cantidad: it.cantidad, neto: null, precioUnit: round2(cc.costo), costo: round2(cc.costo * it.cantidad) };
+    return { id: it.id, tipo: 'plato' as const, insumoId: null, componenteId: it.componenteId, nombre: comp?.nombre ?? '—', unidad: 'порц.', cantidad: it.cantidad, neto: null, coldLossPct: null, hotLossPct: null, precioUnit: round2(cc.costo), costo: round2(cc.costo * it.cantidad) };
   });
   const c = m.costOf(productoId);
   const status = r ? (state?.status ?? 'draft') : 'none';
   return {
     productoId, nombre: p.nombre, descripcion: p.descripcion, categoria: cat?.nombre ?? '', precio: p.precio, hasCard: !!r,
     rendimiento: r?.rendimiento ?? null, tecnologia: r?.tecnologia ?? '', items, costo: round2(c.costo), incompleto: c.incompleto, margen: r ? marginOf(c.costo, p.precio) : null,
+    stock: { ...stock, movements: movements.map((row) => ({ ...row, cantidad: n(row.cantidad), saldo: n(row.saldo) })) },
     state: { status, statusLabel: STATUS_LABEL[status], version: state?.version ?? null, comment: state?.comment ?? null, updatedBy: state?.updated_by ?? null, updatedAt: state?.updated_at ?? null, approvedBy: state?.approved_by ?? null, approvedAt: state?.approved_at ?? null },
     versions,
   };
@@ -96,7 +104,12 @@ router.get('/tc/options', need('tc.view'), ah(async (req, res) => {
 /* ───────── Сохранение ───────── */
 const snapshotOf = (b: { rendimiento?: number | null; tecnologia?: string | null; items: ItemIn[] }) => ({
   rendimiento: b.rendimiento ?? null, tecnologia: b.tecnologia?.trim() ?? '',
-  items: b.items.map((i) => ({ insumoId: i.insumoId ?? null, componenteId: i.componenteId ?? null, cantidad: i.cantidad, neto: i.neto ?? null })),
+  items: b.items.map((i) => ({
+    insumoId: i.insumoId ?? null, componenteId: i.componenteId ?? null, cantidad: i.cantidad,
+    neto: i.insumoId && (i.coldLossPct != null || i.hotLossPct != null)
+      ? Number((i.cantidad * (1 - (i.coldLossPct ?? 0) / 100) * (1 - (i.hotLossPct ?? 0) / 100)).toFixed(6)) : i.neto ?? null,
+    coldLossPct: i.insumoId ? i.coldLossPct ?? null : null, hotLossPct: i.insumoId ? i.hotLossPct ?? null : null,
+  })),
 });
 
 async function applyRecipe(c: PoolClient, rid: string, productoId: string, snap: ReturnType<typeof snapshotOf>, model: CostModel, who: string, action: string, status: string, comment: string | null) {
@@ -127,8 +140,8 @@ async function applyRecipe(c: PoolClient, rid: string, productoId: string, snap:
   let k = 0;
   for (const it of snap.items) {
     k += 1;
-    await c.query(`insert into public."RecetaItem" (id, "recetaId", "insumoId", "componenteId", cantidad, neto) values ($1,$2,$3,$4,$5,$6)`,
-      [`ri-${productoId}-${String(k).padStart(2, '0')}`, rid2, it.insumoId, it.componenteId, it.cantidad, it.neto]);
+    await c.query(`insert into public."RecetaItem" (id, "recetaId", "insumoId", "componenteId", cantidad, neto, "coldLossPct", "hotLossPct") values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [`ri-${productoId}-${String(k).padStart(2, '0')}`, rid2, it.insumoId, it.componenteId, it.cantidad, it.neto, it.coldLossPct ?? null, it.hotLossPct ?? null]);
   }
   const v = (await c.query(
     `insert into office.tc_state (producto_id, restaurante_id, status, version, comment, updated_by, updated_at) values ($1,$2,$3,1,$4,$5,now())

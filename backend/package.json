@@ -4,11 +4,13 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
+    "test": "npm run build && node --test test/*.test.js",
     "start": "node dist/server.js",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:generate": "prisma generate",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "billing:grant": "node dist/tools/record-billing-grant.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

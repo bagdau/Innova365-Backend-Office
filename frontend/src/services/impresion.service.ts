@@ -33,7 +33,7 @@ export interface HostEncontrado { ip: string; puerto: number; estado: EstadoPrin
 export interface PrinterWindows { name: string; port: string; driver: string; isDefault: boolean; offline: boolean }
 
 export const impresionService = {
-  imprimir: (d: { tipo: 'recibo' | 'cuenta' | 'cocina' | 'cierre'; pedidoId?: string; impresoraId?: string; lang: 'ru' | 'en' }) =>
+  imprimir: (d: { tipo: 'recibo' | 'cuenta' | 'cocina' | 'cierre'; pedidoId?: string; impresoraId?: string; periodo?: 'hoy' | 'semana' | 'mes'; lang: 'ru' | 'en' }) =>
     api.post<RespuestaImpresion>('/imprimir', d, { timeout: 15000 }).then((r) => r.data),
   estado: () => api.get<EstadoImpresora[]>('/imprimir/estado', { timeout: 8000 }).then((r) => r.data),
   list: () => api.get<Impresora[]>('/impresoras').then((r) => r.data),

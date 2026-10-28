@@ -6,7 +6,8 @@ import { usePrintPanel, getQuickPrint, setQuickPrint } from '../../lib/printPane
 import { layoutDocument, printSrcdoc, type Fit, type LayoutResult, type Orient, type Paper } from '../../lib/print';
 import { impresionService, type EstadoImpresora, type HostEncontrado, type UsoImpresora } from '../../services/impresion.service';
 import { getDevicePrinter } from '../../lib/printClient';
-import { probeAgent, agentPrinters, printLocal, getLocalCfg, setLocalCfg, type LocalCfg } from '../../lib/localPrinter';
+import { probeAgent, agentPrinters, rawPrinterName, supportsRaw, printLocal, getLocalCfg, setLocalCfg, type LocalCfg } from '../../lib/localPrinter';
+import { hasNativePrinter, systemPrinters, getNativePrinter, setNativePrinter, printNativeDocument } from '../../lib/nativePrinter';
 import { Select } from '../ui/Select';
 import { usbSupport, savedPrinter, connectUsbPrinter, printUsb } from '../../lib/usbPrinter';
 import { getIpPrinters, selectedIpPrinter, setSelectedIp, addIpPrinter, removeIpPrinter, parseIp, discoverIp, printIp, getPref, setPref, type IpPrinter, type Pref } from '../../lib/ipPrinters';
@@ -18,7 +19,7 @@ import { t } from '../../i18n';
 
 const PX_PER_MM = 96 / 25.4;
 const USO: Record<string, UsoImpresora> = { recibo: 'RECIBO', cuenta: 'CUENTA', cocina: 'COCINA', cierre: 'REPORTE' };
-const ROLLS = [58, 80, 90];
+const ROLLS = [58, 76, 80, 90];
 
 const Seg = <T extends string | number>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { v: T; label: string }[] }) => (
   <div className="inline-flex rounded-m border border-border overflow-hidden bg-muted">
@@ -31,20 +32,21 @@ const Seg = <T extends string | number>({ value, onChange, options }: { value: T
   </div>
 );
 
-/** Собственное окно печати: предпросмотр, умный выбор принтера, подгонка размера. Заменяет окно печати браузера. */
+/** Предпросмотр, выбор чекового принтера и системная печать браузера. */
 export function PrintPanel() {
   const { job, close } = usePrintPanel();
   const [target, setTarget] = useState<string>('browser');     // 'auto' | id принтера | 'browser'
   const [paper, setPaper] = useState<Paper>('A4');
   const [fit, setFit] = useState<Fit>('auto');
   const [orient, setOrient] = useState<Orient>('auto');
-  const [layout, setLayout] = useState<LayoutResult | null>(null);
+  const [layoutState, setLayoutState] = useState<{ job: object; paper: Paper; fit: Fit; orient: Orient; value: LayoutResult } | null>(null);
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [quick, setQuick] = useState(getQuickPrint());
   const box = useRef<HTMLDivElement>(null);
   const [boxSize, setBoxSize] = useState({ w: 320, h: 400 });
   const me = useAuthStore((s) => s.user);
+  const layout = layoutState?.job === job && layoutState.paper === paper && layoutState.fit === fit && layoutState.orient === orient ? layoutState.value : null;
   // быстрая настройка сетевого принтера прямо из окна печати
   const [ipText, setIpText] = useState('');
   const [scanning, setScanning] = useState(false);
@@ -55,7 +57,9 @@ export function PrintPanel() {
   const [lcfg, setLcfg] = useState<LocalCfg>(getLocalCfg());
   const upd = (p: Partial<LocalCfg>) => { setLocalCfg(p); setLcfg(getLocalCfg()); };
   const { data: agent, refetch: refetchAgent } = useQuery({ queryKey: ['localAgent', lcfg.url], queryFn: () => probeAgent(lcfg.url), enabled: !!job?.server && lcfg.enabled, refetchInterval: job ? 8000 : false, staleTime: 3000 });
-  const { data: winPrinters = [] } = useQuery({ queryKey: ['localAgentPrinters', lcfg.url], queryFn: () => agentPrinters(lcfg.url), enabled: !!job && !!agent?.online && agent.allowed !== false && target === 'local', staleTime: 15000, retry: false });
+  const { data: winPrinters = [], isLoading: winPrintersLoading, isSuccess: winPrintersFetched, refetch: refetchWinPrinters } = useQuery({ queryKey: ['localAgentPrinters', lcfg.url], queryFn: () => agentPrinters(lcfg.url), enabled: !!job?.server && !!agent?.online && agent.allowed !== false, staleTime: 15000, retry: false });
+  const nativeAvailable = hasNativePrinter();
+  const { data: nativePrinters = [], isLoading: nativeLoading, refetch: refetchNative } = useQuery({ queryKey: ['nativeSystemPrinters'], queryFn: systemPrinters, enabled: !!job && nativeAvailable, staleTime: 5000, retry: false });
   const [testing, setTesting] = useState(false);
   // сетевые (IP) принтеры этого рабочего места
   const [ips, setIps] = useState<IpPrinter[]>(getIpPrinters());
@@ -80,7 +84,7 @@ export function PrintPanel() {
   };
   // USB-принтер напрямую из браузера (WebUSB)
   const usbMode = usbSupport();
-  const { data: usbSaved, refetch: refetchUsb } = useQuery({ queryKey: ['usbSaved'], queryFn: savedPrinter, enabled: !!job?.server && usbMode === 'ok', staleTime: 3000 });
+  const { data: usbSaved, refetch: refetchUsb } = useQuery({ queryKey: ['usbSaved'], queryFn: savedPrinter, enabled: !!job?.server && !nativeAvailable && usbMode === 'ok', staleTime: 3000 });
   const ipErr = (e: unknown) => {
     const m = (e as Error)?.message ?? '';
     if (m === 'no-ip') return t('Primero añade la IP de la impresora');
@@ -96,7 +100,7 @@ export function PrintPanel() {
     return `${t('No se pudo imprimir')} — ${m}`;
   };
 
-  const { data: estado = [], refetch, isFetching } = useQuery<EstadoImpresora[]>({
+  const { data: estado = [], refetch, isFetching, isLoading: estadoLoading } = useQuery<EstadoImpresora[]>({
     queryKey: ['imprimirEstado'], queryFn: impresionService.estado, enabled: !!job?.server, refetchInterval: job ? 8000 : false, staleTime: 3000,
   });
   const eligible = useMemo(() => {
@@ -110,38 +114,65 @@ export function PrintPanel() {
   useEffect(() => {
     if (!job) return;
     setErrors([]); setBusy(false); setFit('auto'); setOrient('auto'); setPaper(job.paper);
-    setTarget(job.server ? (usbSupport() === 'ok' ? 'usb' : 'local') : 'browser');
+    setTarget('browser');
     setFound(null); setSetupMsg('');
   }, [job]);
 
   // «умный» выбор: когда пришло состояние принтеров — закреплённый за устройством, иначе лучший онлайн, иначе браузер
   const picked = useRef<object | null>(null);
+  const pickedTarget = useRef('browser');
   useEffect(() => {
-    if (!job?.server || picked.current === job) return;
+    if (!job || (!job.server && !nativeAvailable) || picked.current === job) return;
+    const select = (value: string) => { picked.current = job; pickedTarget.current = value; setTarget(value); };
+    // В установленном Electron печатаем через очередь Windows. Сохранённый WebUSB-доступ
+    // может указывать на составное USB-устройство без интерфейса принтера.
+    if (nativeAvailable) {
+      if (nativeLoading) return;
+      const saved = nativePrinters.find((p) => p.name === getNativePrinter());
+      if (saved) { select(`system:${saved.name}`); return; }
+      const physical = nativePrinters.filter((p) => !/pdf|xps|onenote|fax|virtual/i.test(p.name));
+      const preferred = physical.find((p) => p.isDefault) ?? physical[0] ?? nativePrinters.find((p) => p.isDefault);
+      select(preferred ? `system:${preferred.name}` : 'browser');
+      return;
+    }
     if (lcfg.enabled && agent === undefined) return;                 // ждём ответ агента этого компьютера
-    if (getPref() === 'ip' && selectedIpPrinter()) { picked.current = job; setTarget('ip'); return; }                       // последний удавшийся способ — IP-принтер
-    if (lcfg.enabled && agent?.online && agent.allowed !== false) { picked.current = job; setTarget('local'); return; }   // свой принтер рядом — приоритет
+    if (getPref() === 'ip' && selectedIpPrinter()) { select('ip'); return; }                       // последний удавшийся способ — IP-принтер
+    if (lcfg.enabled && agent?.online && agent.allowed !== false) {
+      if (winPrintersLoading) return;
+      const ipPrinter = /^\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?$/.test(lcfg.printer.trim());
+      if (ipPrinter || rawPrinterName(lcfg.printer, winPrinters)) { select('local'); return; }
+    }
     if (usbMode === 'ok' && usbSaved === undefined) return;                                                                   // ждём список USB-принтеров
-    if (usbSaved) { picked.current = job; setTarget('usb'); return; }
-    if (estado.length === 0) return;
-    picked.current = job;
+    if (usbSaved) { select('usb'); return; }
+    if (nativeAvailable && nativeLoading) return;
+    const nativeDefault = nativePrinters.find((p) => p.isDefault) ?? (nativePrinters.length === 1 ? nativePrinters[0] : null);
+    if (nativeDefault) { select(`system:${nativeDefault.name}`); return; }
+    if (estadoLoading) return;
     const dev = getDevicePrinter();
-    if (dev && eligible.some((p) => p.id === dev && p.online)) setTarget(dev);
-    else setTarget(bestAuto ? 'auto' : 'local');
-  }, [job, estado, eligible, bestAuto, agent, lcfg.enabled, usbMode, usbSaved]);
+    if (dev && eligible.some((p) => p.id === dev && p.online)) select(dev);
+    else select(bestAuto ? 'auto' : 'browser');
+  }, [job, estadoLoading, eligible, bestAuto, agent, lcfg.enabled, lcfg.printer, winPrinters, winPrintersLoading, usbMode, usbSaved, nativeAvailable, nativeLoading, nativePrinters]);
   useEffect(() => { if (!job) picked.current = null; }, [job]);
 
   const chosen: EstadoImpresora | undefined = target === 'auto' ? bestAuto : eligible.find((p) => p.id === target);
-  const physical = target !== 'browser' && !!job?.server;
+  const physical = target !== 'browser' && (!!job?.server || target.startsWith('system:'));
+  const localPrinterName = lcfg.printer === 'auto'
+    ? [...winPrinters].filter((p) => !p.offline && p.thermal).sort((a, b) => b.score - a.score)[0]?.name ?? ''
+    : lcfg.printer;
+  const configuredLocalMissing = agent?.online && agent.allowed !== false && winPrintersFetched && lcfg.printer !== 'auto' &&
+    !/^\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?$/.test(lcfg.printer) &&
+    !winPrinters.some((p) => p.name === lcfg.printer && !p.offline);
+  const configuredLocalUnsupported = winPrinters.some((p) => p.name === lcfg.printer && !p.offline && !supportsRaw(p));
+  const localWidth = lcfg.ancho === 80 && /XP[-\s]?76/i.test(localPrinterName) ? 76 : lcfg.ancho;
   // ширина ленты подстраивается под выбранный принтер
   useEffect(() => { if (chosen && typeof paper === 'number') setPaper(chosen.ancho); }, [chosen?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if ((target === 'local' || target === 'usb' || target === 'ip') && typeof paper === 'number') setPaper(lcfg.ancho); }, [target, lcfg.ancho]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if ((target === 'local' || target === 'usb' || target === 'ip') && typeof paper === 'number') setPaper(target === 'local' ? localWidth : lcfg.ancho); }, [target, lcfg.ancho, localWidth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // раскладка (предпросмотр = то, что напечатается)
   useEffect(() => {
-    if (!job) { setLayout(null); return; }
+    if (!job) { setLayoutState(null); return; }
     let off = false;
-    layoutDocument(job.html, job.title, { paper, fit, orient }).then((l) => { if (!off) setLayout(l); }).catch(() => undefined);
+    layoutDocument(job.html, job.title, { paper, fit, orient }).then((value) => { if (!off) setLayoutState({ job, paper, fit, orient, value }); }).catch(() => undefined);
     return () => { off = true; };
   }, [job, paper, fit, orient]);
 
@@ -156,23 +187,33 @@ export function PrintPanel() {
     if (!job || busy) return;
     setBusy(true); setErrors([]);
     try {
+      if (target.startsWith('system:')) {
+        if (!layout) throw new Error(t('Cargando...'));
+        const name = target.slice('system:'.length);
+        await printNativeDocument(layout.srcdoc, name, { widthMm: layout.widthMm, heightMm: layout.heightMm });
+        setNativePrinter(name);
+        setPref('system');
+        toast.success(`Задание передано Windows: ${name}`);
+        close();
+        return;
+      }
       if (target === 'ip' && job.server) {
         if (!selIp) throw new Error('no-ip');
-        const r = await printIp({ tipo: job.server.tipo, pedidoId: job.server.pedidoId }, selIp);
+        const r = await printIp(job.server, selIp, typeof paper === 'number' ? paper : undefined);
         setPref('ip');
         toast.success(t('Impreso: {name}', { name: r.printer }));
         close();
         return;
       }
       if (target === 'usb' && job.server) {
-        const r = await printUsb({ tipo: job.server.tipo, pedidoId: job.server.pedidoId });
+        const r = await printUsb(job.server, typeof paper === 'number' ? paper : undefined);
         setPref('usb');
         toast.success(t('Impreso: {name}', { name: r.printer }));
         close();
         return;
       }
       if (target === 'local' && job.server) {
-        const r = await printLocal({ tipo: job.server.tipo, pedidoId: job.server.pedidoId }, lcfg);
+        const r = await printLocal(job.server, typeof paper === 'number' ? { ...lcfg, ancho: paper } : lcfg);
         setPref('local');
         toast.success(t('Impreso: {name}', { name: r.printer }));
         close();
@@ -186,20 +227,20 @@ export function PrintPanel() {
         void refetch();
         return;
       }
-      if (!layout || job.server) return;               // чеки — только ESC/POS (агент / сервер), без окна печати браузера
+      if (!layout) return;
       await printSrcdoc(layout.srcdoc);
       close();
     } catch (e: any) {
-      setErrors([e?.response?.status === 403 ? t('Sin permisos para esta acción') : target === 'local' ? `${t('No se pudo imprimir')} — ${e?.message ?? ''}` : target === 'usb' ? usbErr(e) : target === 'ip' ? ipErr(e) : t('No se pudo imprimir')]);
+      setErrors([e?.response?.status === 403 ? t('Sin permisos para esta acción') : target === 'local' || target === 'browser' || target.startsWith('system:') ? `${t('No se pudo imprimir')} — ${e?.message ?? ''}` : target === 'usb' ? usbErr(e) : target === 'ip' ? ipErr(e) : t('No se pudo imprimir')]);
     } finally { setBusy(false); }
-  }, [job, busy, physical, target, layout, close, refetch, lcfg, selIp]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [job, busy, physical, target, layout, close, refetch, lcfg, selIp, paper]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // чек после оплаты: печать стартует сама, как только документ готов
   useEffect(() => {
-    if (!job?.autoPrint || !layout || autoDone.current === job) return;
+    if (!job?.autoPrint || !layout || autoDone.current === job || ((job.server || nativeAvailable) && (picked.current !== job || target !== pickedTarget.current))) return;
     autoDone.current = job;
     void printNow();
-  }, [job, layout, printNow]);
+  }, [job, layout, printNow, agent, winPrinters, winPrintersLoading, usbSaved, estadoLoading, nativePrinters, nativeLoading]);
 
   useEffect(() => {
     if (!job) return;
@@ -275,7 +316,7 @@ export function PrintPanel() {
 
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
           {/* предпросмотр */}
-          <div className="lg:flex-1 min-h-[34vh] lg:min-h-0 bg-muted/60 flex flex-col border-b lg:border-b-0 lg:border-r border-border">
+          <div className="h-[34vh] flex-none lg:h-auto lg:flex-1 lg:min-h-0 bg-muted/60 flex flex-col border-b lg:border-b-0 lg:border-r border-border">
             <div className="px-4 py-2 flex items-center justify-between text-xs text-muted-foreground">
               <span className="font-medium uppercase tracking-wide">{t('Vista previa')}</span>
               {layout && <span>{Math.round(layout.widthMm)} × {Math.round(layout.heightMm)} {t('mm')} · {t('escala')} {Math.round(layout.scale * 100)}%{layout.orient === 'landscape' ? ` · ${t('Horizontal')}` : ''}</span>}
@@ -291,33 +332,36 @@ export function PrintPanel() {
           </div>
 
           {/* настройки */}
-          <div className="lg:w-[360px] flex-shrink-0 overflow-y-auto p-4 sm:p-5 space-y-5">
+          <div className="flex-1 min-h-0 lg:flex-none lg:w-[360px] overflow-y-auto p-4 sm:p-5 space-y-5">
             <section>
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-semibold text-foreground">{t('Impresora')}</h3>
-                {job.server && <button type="button" data-sound="none" onClick={() => refetch()} className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"><RefreshCw size={12} className={cn(isFetching && 'animate-spin')} />{t('Actualizar')}</button>}
+                {job.server && <button type="button" data-sound="none" onClick={() => { void refetch(); void refetchAgent(); void refetchWinPrinters(); void refetchUsb(); void refetchNative(); }} className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"><RefreshCw size={12} className={cn(isFetching && 'animate-spin')} />{t('Actualizar')}</button>}
               </div>
               <div className="space-y-2">
-                {job.server && estado.length > 0 && (
+                {!nativeAvailable && job.server && estado.length > 0 && (
                   <Option id="auto" icon={<Sparkles size={18} />} title={t('Auto (inteligente)')}
                     sub={bestAuto ? `${bestAuto.nombre} · ${stateTxt(bestAuto)}` : estado.length ? t('Ninguna impresora del servidor responde') : ''} />
                 )}
-                {job.server && (
+                {!nativeAvailable && job.server && (
                   <Option id="usb" icon={<Usb size={18} className={usbSaved ? 'text-green-500' : ''} />} title={t('Impresora USB (directo desde el navegador)')}
                     sub={usbMode !== 'ok' ? (usbMode === 'insecure' ? t('WebUSB недоступен на http-странице: откройте Innova365 через start-pos-browser.bat') : t('Este navegador no admite USB directo: usa Chrome o Edge')) : usbSaved ? `${usbSaved.info.name} · ${t('En línea')}` : t('Pulsa para conectar la impresora USB')} />
                 )}
-                {job.server && (
+                {!nativeAvailable && job.server && (
                   <Option id="ip" icon={<Network size={18} className={selIp ? 'text-green-500' : ''} />} title={t('Impresora de red (IP)')}
                     sub={selIp ? `${selIp.ip}:${selIp.port}${ips.length > 1 ? ` · +${ips.length - 1}` : ''}` : t('Añade la IP de la impresora de red')} />
                 )}
-                {job.server && lcfg.enabled && (
+                {!nativeAvailable && job.server && lcfg.enabled && (
                   <Option id="local" icon={<MonitorSmartphone size={18} className={agent?.online ? 'text-green-500' : ''} />} title={t('Impresora de este equipo (agente)')}
                     sub={agent === undefined ? t('Cargando...') : agent.online ? (agent.allowed === false ? t('El agente no permite esta página: añádela en allowed-origins.txt') : `${agent.host ?? ''} · ${lcfg.printer === 'auto' ? t('Auto (inteligente)') : lcfg.printer} · ${t('En línea')}`) : t('El agente no está en este equipo: instala print-agent (ver abajo)')} />
                 )}
-                {eligible.map((p) => (
+                {!nativeAvailable && eligible.map((p) => (
                   <Option key={p.id} id={p.id} icon={dot(p)} title={p.nombre} sub={`${stateTxt(p)} · ${p.ancho} ${t('mm')}`} />
                 ))}
-                {!job.server && <Option id="browser" icon={<Globe size={18} />} title={t('Diálogo del sistema (navegador)')} sub={t('Cualquier impresora de Windows, A4 o rollo')} />}
+                {nativePrinters.map((p) => (
+                  <Option key={`system:${p.name}`} id={`system:${p.name}`} icon={<Printer size={18} />} title={p.displayName || p.name} sub={t('Impresora en Windows')} />
+                ))}
+                <Option id="browser" icon={<Globe size={18} />} title={t('Diálogo del sistema (navegador)')} sub={t('Cualquier impresora de Windows, A4 o rollo')} />
               </div>
             </section>
 
@@ -369,7 +413,7 @@ export function PrintPanel() {
               </section>
             )}
 
-            {target === 'usb' && (
+            {!nativeAvailable && target === 'usb' && (
               <section className="space-y-3 rounded-l border border-border p-3">
                 <h3 className="text-sm font-semibold text-foreground">{t('Impresora USB (directo desde el navegador)')}</h3>
                 {usbMode !== 'ok' ? (
@@ -409,6 +453,8 @@ export function PrintPanel() {
                 <h3 className="text-sm font-semibold text-foreground">{t('Impresora de este equipo (agente)')}</h3>
                 {agent?.online && agent.allowed !== false ? (
                   <>
+                    {configuredLocalMissing && <p className="text-xs text-error">«{lcfg.printer}»: {t('Fuera de línea')}. {t('Indica el nombre de la impresora en Windows')}</p>}
+                    {configuredLocalUnsupported && <p className="text-xs text-error">«{lcfg.printer}»: {t('Esta impresora imprime desde el navegador')}</p>}
                     <div>
                       <p className="text-xs text-muted-foreground mb-1">{t('Impresora')}</p>
                       <Select value={winPrinters.some((p) => p.name === lcfg.printer) || lcfg.printer === 'auto' ? lcfg.printer : '__ip'} onChange={(v) => upd({ printer: v === '__ip' ? '' : v })}
@@ -446,7 +492,7 @@ export function PrintPanel() {
               </section>
             )}
 
-            {job.server && !isFetching && estado.length === 0 && target !== 'local' && target !== 'usb' && !agent?.online && (
+            {job.server && !isFetching && estado.length === 0 && target !== 'browser' && target !== 'local' && target !== 'usb' && !agent?.online && (
               <section className="rounded-l border border-primary/40 bg-primary/5 p-3 space-y-2.5">
                 <h3 className="text-sm font-semibold text-foreground">{t('Sin impresora configurada')}</h3>
                 {isAdminLike(me?.rol) ? (
@@ -516,7 +562,7 @@ export function PrintPanel() {
 
         <div className="flex items-center gap-3 px-4 sm:px-5 py-3 border-t border-border flex-shrink-0 bg-card" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
           <button onClick={close} data-sound="none" className="px-4 py-2.5 rounded-m bg-muted border border-border text-sm font-medium text-foreground hover:bg-border">{t('Cancelar')}</button>
-          <button onClick={printNow} disabled={busy || (!layout && !physical)} data-sound="none"
+          <button onClick={printNow} disabled={busy || (!layout && (!physical || target.startsWith('system:')))} data-sound="none"
             className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-m bg-primary text-white text-sm font-semibold hover:opacity-90 disabled:opacity-50">
             <Printer size={16} className={cn(busy && 'animate-pulse')} />
             {busy ? t('Imprimiendo...') : physical ? `${t('Imprimir')}${chosen ? ` · ${chosen.nombre}` : ''}` : t('Imprimir')}

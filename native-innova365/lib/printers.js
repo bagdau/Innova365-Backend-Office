@@ -21,14 +21,13 @@ function classify(raw) {
 
 const classifyAll = (list) => (Array.isArray(list) ? list : []).map(classify);
 
-/** Лучший кассовый принтер или null, если подходящего нет. */
-function pickBest(items) {
-  const sorted = [...items].sort((a, b) => b.score - a.score);
-  const best = sorted[0];
-  return best && best.score > -5 ? best : null;
-}
-
 /** Похож ли принтер на кассовый: по названию (POS/XP/Receipt/Thermal…) либо «Generic / Text Only» (универсальный драйвер для чековых принтеров). */
 const looksLikeReceipt = (p) => !!p && (p.thermal || /(generic|text only)/i.test(p.name));
+
+/** Автовыбор не отправляет ESC/POS-команды на обычный офисный принтер. */
+function pickBest(items) {
+  const sorted = [...items].filter((p) => !p.offline && p.score > -5 && looksLikeReceipt(p)).sort((a, b) => b.score - a.score);
+  return sorted[0] ?? null;
+}
 
 module.exports = { classify, classifyAll, pickBest, looksLikeReceipt };

@@ -129,19 +129,30 @@ export async function layoutDocument(bodyHtml: string, title: string, o: LayoutO
   return { srcdoc: wrapDoc(title, bodyHtml, css), widthMm: pw, heightMm: ph, scale, fontPx: 12, orient, roll: false };
 }
 
-/** Печать готового документа через системное окно браузера (скрытый iframe). Для печати без окна — start-pos-browser.bat (--kiosk-printing). */
-export function printSrcdoc(srcdoc: string): Promise<void> {
+/** Печать через уже установленный Electron-клиент или системное окно браузера. */
+export async function printSrcdoc(srcdoc: string): Promise<void> {
+  const native = (window as Window & {
+    __innovaPrintHtml?: (html: string, options: { title: string }) => Promise<{ handled?: boolean; error?: string }>;
+  }).__innovaPrintHtml;
+  if (native) {
+    const result = await native(srcdoc, { title: document.title });
+    if (result?.handled) return;
+    if (result?.error) throw new Error(result.error);
+  }
   return new Promise((resolve) => {
     const iframe = document.createElement('iframe');
     iframe.setAttribute('aria-hidden', 'true');
-    iframe.style.cssText = 'position:fixed;right:0;bottom:0;border:0;visibility:hidden;width:210mm;height:10px';
+    // Документ должен реально отрисоваться: visibility:hidden и высота 10px
+    // приводят к пустому заданию печати у некоторых драйверов чековых принтеров.
+    iframe.style.cssText = 'position:fixed;left:-10000px;top:0;border:0;width:210mm;height:1000px;pointer-events:none';
     document.body.appendChild(iframe);
     const doc = iframe.contentDocument!;
     doc.open(); doc.write(srcdoc); doc.close();
     const cleanup = () => { setTimeout(() => { iframe.remove(); resolve(); }, 500); };
     const run = async () => {
       await settle(doc);
-      const w = iframe.contentWindow!;
+      // После прямого вызова моста не повторяем его через подменённый Electron window.print().
+      const w = doc.defaultView ?? iframe.contentWindow!;
       w.addEventListener('afterprint', cleanup, { once: true });
       w.focus();
       w.print();

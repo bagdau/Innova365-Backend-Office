@@ -24,17 +24,16 @@
   async function init() {
     st = await api.state();
     $('ver').textContent = 'v' + st.version;
-    if (st.first) { show('first', true); show('lock', false); show('app', false); $('subtitle').textContent = 'Первый запуск'; $('f_server').focus(); return; }
+    if (st.first) { location.replace('activation.html'); return; }
     if (st.locked) {
-      show('lock', true); show('first', false); show('app', false); $('pin').focus();
+      show('lock', true); show('app', false); $('pin').focus();
       if (q.get('hint') === 'quit') $('lockHint').textContent = 'Чтобы закрыть приложение, введите PIN-код.';
       return;
     }
-    show('lock', false); show('first', false); show('app', true);
+    show('lock', false); show('app', true);
     fill();
-    tab(q.get('tab') || 'connection');
+    tab(q.get('tab') === 'connection' ? 'print' : (q.get('tab') || 'print'));
     if (q.get('hint') === 'quit') show('quitHint', true);
-    if (q.get('hint') === 'office') msg('m_connection', 'warn', 'Укажите адрес Office, чтобы открывать его из приложения.');
     void loadPrinters(); void loadLogs();
   }
 
@@ -47,23 +46,6 @@
   $('unlock').addEventListener('click', () => void unlock());
   $('pin').addEventListener('keydown', (e) => { if (e.key === 'Enter') void unlock(); });
 
-  /* ───────── первый запуск ───────── */
-  const checkUrlInto = async (url, msgId) => {
-    msg(msgId, '', ''); if (!url.trim()) { msg(msgId, 'err', 'Введите адрес'); return null; }
-    msg(msgId, 'warn', 'Проверяю…');
-    const r = await api.checkUrl(url);
-    if (r.ok) msg(msgId, 'ok', `Сервер отвечает (${r.ms} мс): ${r.url}`);
-    else msg(msgId, 'err', r.error ? `Не удалось подключиться: ${r.error}` : `Сервер ответил ошибкой ${r.status}`);
-    return r;
-  };
-  $('f_check').addEventListener('click', () => void checkUrlInto($('f_server').value, 'f_msg'));
-  $('f_go').addEventListener('click', async () => {
-    const r = await api.save({ serverUrl: $('f_server').value });
-    if (!r.ok) { msg('f_msg', 'err', r.error || 'Не удалось сохранить'); return; }
-    window.close();
-  });
-  $('f_server').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('f_go').click(); });
-
   /* ───────── вкладки ───────── */
   function tab(name) {
     document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === name));
@@ -74,7 +56,6 @@
   /* ───────── заполнение и сохранение ───────── */
   function fill() {
     const c = st.config, a = st.agent;
-    $('serverUrl').value = c.serverUrl; $('officeUrl').value = c.officeUrl;
     for (const k of ['fullscreen', 'kiosk', 'closeToTray', 'autoStart']) $(k).checked = !!c[k];
     $('zoom').value = c.zoom; $('zoomVal').textContent = Math.round(c.zoom * 100) + '%';
     $('agent.enabled').checked = c.agent.enabled; $('agent.port').value = c.agent.port; $('agent.lan').checked = c.agent.lan;
@@ -92,14 +73,13 @@
   function renderPin(set) { const b = $('pinBadge'); b.className = 'badge ' + (set ? 'good' : 'muted'); b.textContent = set ? 'задан' : 'не задан'; show('clearPin', set); }
 
   function renderAbout() {
-    const rows = [['Версия', st.version], ['Платформа', st.platform], ['Electron', st.versions.electron], ['Chromium', st.versions.chrome], ['Node.js', st.versions.node], ['Папка данных', st.userData], ['Касса', st.config.serverUrl || '—']];
+    const rows = [['Версия', st.version], ['Платформа', st.platform], ['Electron', st.versions.electron], ['Chromium', st.versions.chrome], ['Node.js', st.versions.node], ['Папка данных', st.userData], ['Ресторан', st.config.activation?.restaurantName || '—']];
     const tb = $('aboutTable'); tb.replaceChildren(...rows.map(([k, v]) => el('tr', null, el('td', { class: 'muted' }, k), el('td', { class: 'mono' }, v))));
   }
 
   async function save(group) {
     const patch = {};
-    const msgId = { connection: 'm_connection', agent: 'm_agent', silent: 'm_silent', window: 'm_window' }[group];
-    if (group === 'connection') Object.assign(patch, { serverUrl: $('serverUrl').value, officeUrl: $('officeUrl').value });
+    const msgId = { agent: 'm_agent', silent: 'm_silent', window: 'm_window' }[group];
     if (group === 'agent') patch.agent = { enabled: $('agent.enabled').checked, port: Number($('agent.port').value), lan: $('agent.lan').checked, extraOrigins: $('agent.extraOrigins').value };
     if (group === 'silent') patch.print = { silent: $('print.silent').checked, deviceName: $('print.deviceName').value };
     if (group === 'window') Object.assign(patch, { fullscreen: $('fullscreen').checked, kiosk: $('kiosk').checked, closeToTray: $('closeToTray').checked, autoStart: $('autoStart').checked, zoom: Number($('zoom').value) });
@@ -110,7 +90,6 @@
     msg(msgId, kioskNoPin ? 'warn' : 'ok', kioskNoPin ? 'Сохранено. В режиме киоска задайте PIN-код на вкладке «Безопасность», иначе выйти сможет любой.' : 'Сохранено');
   }
   document.querySelectorAll('[data-save]').forEach((b) => b.addEventListener('click', () => void save(b.dataset.save)));
-  document.querySelectorAll('[data-check]').forEach((b) => b.addEventListener('click', () => void checkUrlInto($(b.dataset.check).value, 'm_' + b.dataset.check)));
   $('zoom').addEventListener('input', () => { $('zoomVal').textContent = Math.round(Number($('zoom').value) * 100) + '%'; });
 
   /* ───────── агент ───────── */

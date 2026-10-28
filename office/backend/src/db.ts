@@ -9,6 +9,9 @@ pool.on('error', (e) => console.error('[pg pool]', e.message));
 // числа и даты отдаём как есть: numeric → строка (потом приводим к Number там, где это нужно), date → 'YYYY-MM-DD'
 import { types } from 'pg';
 types.setTypeParser(1082, (v: string) => v);
+// Prisma хранит DateTime в public как TIMESTAMP без часового пояса, но значения в UTC.
+// Стандартный pg читает их в TZ процесса (у Office это часовой пояс заведения), сдвигая время.
+types.setTypeParser(1114, (v: string) => new Date(v.replace(' ', 'T') + 'Z'));
 
 export async function q<T extends QueryResultRow = any>(text: string, values: unknown[] = []): Promise<T[]> {
   const r = await pool.query<T>({ text, values: values as any[] });

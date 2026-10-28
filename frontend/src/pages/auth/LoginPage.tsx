@@ -7,7 +7,6 @@ import { Eye, EyeOff, TriangleAlert } from 'lucide-react';
 import { authService } from '../../services/auth.service';
 import { useAuthStore } from '../../store/authStore';
 import { Button } from '../../components/ui/Button';
-import { Input } from '../../components/ui/Input';
 import { LanguageSwitcher } from '../../components/shared/LanguageSwitcher';
 import { Logo } from '../../components/shared/Logo';
 import { ThemeSwitcher } from '../../components/shared/ThemeSwitcher';
@@ -18,8 +17,9 @@ import { homeFor } from '../../auth/permissions';
 import { t, apiError } from '../../i18n';
 
 const schema = z.object({
-  email: z.string().email(t('Email inválido')),
-  password: z.string().min(1, t('Contraseña requerida')),
+  email: z.string().email(t('Email inválido')).optional(),
+  password: z.string().optional(),
+  pin: z.string().optional(),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -28,16 +28,21 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const { setAuth } = useAuthStore();
   const [showPass, setShowPass] = useState(false);
+  const [loginMode, setLoginMode] = useState<'password' | 'pin'>('password');
   const [error, setError] = useState('');
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
+  const { register, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
   });
 
   const onSubmit = async (data: FormData) => {
     setError('');
+    if (loginMode === 'pin' && !/^\d{4}$/.test(data.pin ?? '')) { setError(t('Введите PIN из 4 цифр')); return; }
+    if (loginMode === 'password' && (!data.email || !data.password)) { setError(t('Укажите email и пароль')); return; }
     try {
-      const res = await authService.login(data.email, data.password);
+      const res = loginMode === 'pin'
+        ? await authService.loginPin(data.pin!)
+        : await authService.login(data.email!, data.password!);
       setAuth(res.user, res.accessToken);
       playSound('login');
       navigate(homeFor(res.user.rol));
@@ -80,7 +85,13 @@ export default function LoginPage() {
           <div className="bg-card border border-border rounded-l p-8">
             <div className="mb-6">
               <h2 className="text-xl font-bold text-foreground">{t('Iniciar Sesión')}</h2>
-              <p className="text-sm text-muted-foreground mt-1">{t('Ingresa tu cuenta para continuar')}</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-1 rounded-m bg-muted p-1 mb-5" role="group" aria-label={t('Способ входа')}>
+              <button type="button" aria-pressed={loginMode === 'password'} onClick={() => { setLoginMode('password'); setError(''); setValue('pin', ''); }}
+                className={`rounded-m px-3 py-2 text-sm font-semibold transition-colors ${loginMode === 'password' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>{t('Пароль')}</button>
+              <button type="button" aria-pressed={loginMode === 'pin'} onClick={() => { setLoginMode('pin'); setError(''); setValue('email', undefined); setValue('password', ''); }}
+                className={`rounded-m px-3 py-2 text-sm font-semibold transition-colors ${loginMode === 'pin' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>{t('PIN-код')}</button>
             </div>
 
             {error && (
@@ -91,7 +102,7 @@ export default function LoginPage() {
             )}
 
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-              <div>
+              {loginMode === 'password' && <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">{t('Correo electrónico')}</label>
                 <input
                   type="email"
@@ -100,9 +111,15 @@ export default function LoginPage() {
                   className="w-full bg-muted border border-border rounded-m px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
                 />
                 {errors.email && <p className="text-xs text-error mt-1">{errors.email.message}</p>}
-              </div>
+              </div>}
+              {loginMode === 'pin' && <div>
+                <label htmlFor="login-pin" className="block text-sm font-medium text-foreground mb-1.5">{t('PIN-код — 4 цифры')}</label>
+                <input id="login-pin" type="password" inputMode="numeric" data-vkb-im="pin" pattern="[0-9]{4}" maxLength={4} autoComplete="off"
+                  placeholder="••••" {...register('pin')}
+                  className="w-full bg-muted border border-border rounded-m px-3 py-2.5 text-center text-xl tracking-[0.55em] text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors" />
+              </div>}
 
-              <div>
+              {loginMode === 'password' && <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">{t('Contraseña')}</label>
                 <div className="relative">
                   <input
@@ -120,16 +137,13 @@ export default function LoginPage() {
                   </button>
                 </div>
                 {errors.password && <p className="text-xs text-error mt-1">{errors.password.message}</p>}
-              </div>
+              </div>}
 
               <Button type="submit" className="w-full" size="lg" loading={isSubmitting}>
-                {t('Ingresar al Sistema')}
+                {loginMode === 'pin' ? t('Войти по PIN') : t('Ingresar al Sistema')}
               </Button>
             </form>
 
-            <p className="text-center text-xs text-primary hover:underline cursor-pointer mt-4">
-              {t('¿Olvidaste tu contraseña?')}
-            </p>
           </div>
         </div>
       </div>

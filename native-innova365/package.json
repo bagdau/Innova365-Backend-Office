@@ -20,7 +20,8 @@
     "build:ui": "npm --prefix ../frontend run build",
     "build:api": "npm --prefix ../backend run build",
     "pack": "electron-builder --dir",
-    "dist": "npm run build:api && npm run build:ui && electron-builder --win nsis",
+    "vc-runtime": "node tools/ensure-vc-runtime.js",
+    "dist": "npm run vc-runtime && npm run build:api && npm run build:ui && electron-builder --win nsis",
     "icon": "python build/make-icon.py"
   },
   "build": {

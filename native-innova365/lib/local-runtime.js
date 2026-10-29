@@ -24,6 +24,19 @@ function run(file, args, opts = {}) {
   });
 }
 
+/** @param {any} error */
+function explainInitdbError(error) {
+  const text = String(error?.message || error);
+  if (/3221225781|0xC0000135|3221225477|0xC0000005/i.test(text) || error?.code === 'ENOENT') {
+    return `Не удалось запустить initdb.exe: не хватает системных библиотек Windows. Установите Microsoft Visual C++ Redistributable x64 (https://aka.ms/vs/17/release/vc_redist.x64.exe) и запустите кассу снова.
+${text}`;
+  }
+  if (/administrative|администратор/i.test(text)) return `Запустите кассу обычным двойным кликом, не от имени администратора.
+${text}`;
+  return `Не удалось создать локальную базу. Если установлен антивирус, добавьте папку установки Innova365 в исключения.
+${text}`;
+}
+
 function freePort() {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -111,6 +124,7 @@ async function startLocalRuntime(options) {
       const passwordFile = path.join(dataDir, 'pg-password.tmp');
       fs.writeFileSync(passwordFile, secrets.dbPassword + '\n', { mode: 0o600 });
       try { await run(initdb, ['-D', cluster, '-U', 'innova', '--encoding=UTF8', '--locale=C', '--auth-host=scram-sha-256', '--pwfile', passwordFile], { cwd: pgDir, timeout: 120_000 }); }
+      catch (error) { throw new Error(explainInitdbError(error)); }
       finally { fs.rmSync(passwordFile, { force: true }); }
     }
     // Убираем оставшийся после аварийного выключения процесс этой же локальной БД.

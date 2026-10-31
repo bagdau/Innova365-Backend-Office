@@ -1,7 +1,7 @@
 'use strict';
 /** Минимальный ESC/POS для пробной печати: инициализация, кодовая страница, текст, отрезка. Без зависимостей от Electron. */
 
-const ESC = 0x1b, GS = 0x1d, LF = 0x0a;
+const ESC = 0x1b, FS = 0x1c, GS = 0x1d, LF = 0x0a;
 
 const CP_TABLE = { cp866: 17, cp1251: 46 };   // ESC t n — как в серверном генераторе (backend/src/print/escpos.ts)
 
@@ -52,6 +52,7 @@ function testReceipt({ printer = '', width = 80, codepage = 'cp866', cut = true,
   const bold = (on) => raw(ESC, 0x45, on ? 1 : 0);
 
   raw(ESC, 0x40);                                           // сброс
+  raw(FS, 0x2e);                                            // XP-76: выключить двухбайтовый режим китайских символов
   if (CP_TABLE[codepage] !== undefined) raw(ESC, 0x74, CP_TABLE[codepage]);
   center(true); bold(true); raw(GS, 0x21, 0x11); line('Innova365'); raw(GS, 0x21, 0x00); bold(false);
   line('Пробная печать');

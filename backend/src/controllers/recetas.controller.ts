@@ -2,15 +2,32 @@ import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma';
 import { HttpError } from '../idem';
-import { cargarRecetas, expandir, haceCiclo, RecetaMap } from '../recetas';
+import { cargarRecetas, expandir, haceCiclo, netAfterProcessing, RecetaMap } from '../recetas';
 
 const num = (v: Prisma.Decimal | number | string | null | undefined) => Number(v ?? 0);
 
-interface InsumoLite { id: string; nombre: string; unidad: string; stock: number; costo: number | null }
+interface InsumoLite { id: string; nombre: string; unidad: string; stock: number; minimo: number; costo: number | null }
 
 async function insumosMap(rid: string): Promise<Map<string, InsumoLite>> {
-  const rows = await prisma.insumo.findMany({ where: { restauranteId: rid }, select: { id: true, nombre: true, unidad: true, stockActual: true, costoUnitario: true } });
-  return new Map(rows.map((i) => [i.id, { id: i.id, nombre: i.nombre, unidad: i.unidad, stock: num(i.stockActual), costo: i.costoUnitario === null ? null : num(i.costoUnitario) }]));
+  const rows = await prisma.insumo.findMany({ where: { restauranteId: rid }, select: { id: true, nombre: true, unidad: true, stockActual: true, stockMinimo: true, costoUnitario: true } });
+  return new Map(rows.map((i) => [i.id, { id: i.id, nombre: i.nombre, unidad: i.unidad, stock: num(i.stockActual), minimo: num(i.stockMinimo), costo: i.costoUnitario === null ? null : num(i.costoUnitario) }]));
+}
+
+/** Брутто на порцию — склад списывает именно его; нетто и тепловые потери на остаток не влияют. */
+function availability(map: RecetaMap, ins: Map<string, InsumoLite>, productoId: string) {
+  const need = map[productoId] ? expandir(map, productoId, 1) : new Map<string, number>();
+  const ingredients = [...need].filter(([, qty]) => qty > 0).map(([id, qty]) => {
+    const item = ins.get(id);
+    const stock = item?.stock ?? 0;
+    const minimo = item?.minimo ?? 0;
+    const lowAt = Math.max(minimo, qty * 3);
+    const highAt = Math.max(minimo * 2, qty * 20);
+    const status = !item || stock <= lowAt ? 'low' : stock >= highAt ? 'surplus' : 'normal';
+    return { insumoId: id, nombre: item?.nombre ?? 'Ингредиент не найден', unidad: item?.unidad ?? '', porcion: qty, stock, minimo, porciones: Math.floor(Math.max(0, stock) / qty), status };
+  });
+  const status = !ingredients.length ? 'none' : ingredients.some((i) => i.status === 'low') ? 'low' : ingredients.every((i) => i.status === 'surplus') ? 'surplus' : 'normal';
+  const porciones = ingredients.length ? Math.min(...ingredients.map((i) => i.porciones)) : null;
+  return { status, porciones, ingredients };
 }
 
 /** Себестоимость 1 порции и «на сколько порций хватит остатков». */
@@ -32,10 +49,13 @@ export async function getRecetas(req: Request, res: Response): Promise<void> {
   const [map, ins, prods] = await Promise.all([cargarRecetas(prisma, rid), insumosMap(rid), prisma.producto.findMany({ where: { restauranteId: rid }, select: { id: true, precio: true } })]);
   res.json(prods.map((p) => {
     const r = map[p.id];
-    if (!r) return { productoId: p.id, tieneReceta: false, items: 0, costo: 0, incompleto: false, porciones: null, margen: null };
+    if (!r) return { productoId: p.id, tieneReceta: false, items: 0, costo: 0, incompleto: false, porciones: null, stockStatus: 'none', margen: null };
     const c = calcular(map, ins, p.id);
+    const stock = availability(map, ins, p.id);
     const precio = num(p.precio);
-    return { productoId: p.id, tieneReceta: true, items: r.items.length, costo: Math.round(c.costo * 100) / 100, incompleto: c.incompleto, porciones: c.porciones, margen: precio > 0 ? Math.round((1 - c.costo / precio) * 1000) / 10 : null };
+    return { productoId: p.id, tieneReceta: true, items: r.items.length,
+      ...(req.user!.rol === 'CAJERO' ? {} : { costo: Math.round(c.costo * 100) / 100, incompleto: c.incompleto, margen: precio > 0 ? Math.round((1 - c.costo / precio) * 1000) / 10 : null }),
+      porciones: stock.porciones, stockStatus: stock.status };
   }));
 }
 
@@ -52,18 +72,19 @@ async function tarjeta(rid: string, productoId: string) {
     if (i.insumoId) {
       const x = ins.get(i.insumoId);
       const cant = num(i.cantidad);
-      return { id: i.id, tipo: 'insumo' as const, insumoId: i.insumoId, componenteId: null, nombre: x?.nombre ?? '—', unidad: x?.unidad ?? '', cantidad: cant, neto: i.neto === null ? null : num(i.neto), costo: x?.costo === null || !x ? null : cant * x.costo, stock: x?.stock ?? 0 };
+      return { id: i.id, tipo: 'insumo' as const, insumoId: i.insumoId, componenteId: null, nombre: x?.nombre ?? '—', unidad: x?.unidad ?? '', cantidad: cant, neto: i.neto === null ? null : num(i.neto), coldLossPct: i.coldLossPct === null ? null : num(i.coldLossPct), hotLossPct: i.hotLossPct === null ? null : num(i.hotLossPct), costo: x?.costo === null || !x ? null : cant * x.costo, stock: x?.stock ?? 0 };
     }
     const cant = num(i.cantidad);
     const c = calcular(map, ins, i.componenteId!);
-    return { id: i.id, tipo: 'plato' as const, insumoId: null, componenteId: i.componenteId, nombre: names.get(i.componenteId!) ?? '—', unidad: 'порц.', cantidad: cant, neto: null, costo: c.costo * cant, stock: c.porciones ?? 0 };
+    return { id: i.id, tipo: 'plato' as const, insumoId: null, componenteId: i.componenteId, nombre: names.get(i.componenteId!) ?? '—', unidad: 'порц.', cantidad: cant, neto: null, coldLossPct: null, hotLossPct: null, costo: c.costo * cant, stock: c.porciones ?? 0 };
   });
   const c = receta ? calcular(map, ins, productoId) : { costo: 0, incompleto: false, porciones: null };
+  const stock = availability(map, ins, productoId);
   const precio = num(producto.precio);
   return {
     productoId, nombre: producto.nombre, precio, tieneReceta: !!receta,
     rendimiento: receta?.rendimiento === null || !receta ? null : num(receta.rendimiento), tecnologia: receta?.tecnologia ?? '',
-    items, costo: Math.round(c.costo * 100) / 100, incompleto: c.incompleto, porciones: c.porciones,
+    items, costo: Math.round(c.costo * 100) / 100, incompleto: c.incompleto, porciones: stock.porciones, stockStatus: stock.status,
     margen: precio > 0 && receta ? Math.round((1 - c.costo / precio) * 1000) / 10 : null,
     actualizadoEn: receta?.actualizadoEn ?? null,
   };
@@ -73,11 +94,26 @@ export async function getReceta(req: Request, res: Response): Promise<void> {
   res.json(await tarjeta(req.restauranteId!, req.params.productoId));
 }
 
+export async function getRecetaStock(req: Request, res: Response): Promise<void> {
+  const rid = req.restauranteId!;
+  const productoId = req.params.productoId;
+  const producto = await prisma.producto.findFirst({ where: { id: productoId, restauranteId: rid }, select: { id: true, nombre: true } });
+  if (!producto) throw new HttpError(404, 'Producto no encontrado');
+  const [map, ins] = await Promise.all([cargarRecetas(prisma, rid), insumosMap(rid)]);
+  const stock = availability(map, ins, productoId);
+  const movements = stock.ingredients.length ? await prisma.movimientoInventario.findMany({
+    where: { restauranteId: rid, insumoId: { in: stock.ingredients.map((i) => i.insumoId) } },
+    orderBy: { creadoEn: 'desc' }, take: 50,
+    select: { id: true, insumoId: true, tipo: true, cantidad: true, saldo: true, motivo: true, creadoEn: true },
+  }) : [];
+  res.json({ productoId, nombre: producto.nombre, ...stock, movements: movements.map((m) => ({ ...m, cantidad: num(m.cantidad), saldo: num(m.saldo) })) });
+}
+
 /** Сохраняет тех-карту целиком (состав заменяется). Пустой состав — тех-карта удаляется. */
 export async function putReceta(req: Request, res: Response): Promise<void> {
   const rid = req.restauranteId!;
   const productoId = req.params.productoId;
-  const { rendimiento, tecnologia, items } = req.body as { rendimiento?: number | null; tecnologia?: string | null; items: { insumoId?: string | null; componenteId?: string | null; cantidad: number; neto?: number | null }[] };
+  const { rendimiento, tecnologia, items } = req.body as { rendimiento?: number | null; tecnologia?: string | null; items: { insumoId?: string | null; componenteId?: string | null; cantidad: number; neto?: number | null; coldLossPct?: number | null; hotLossPct?: number | null }[] };
 
   const prod = await prisma.producto.findFirst({ where: { id: productoId, restauranteId: rid }, select: { id: true } });
   if (!prod) throw new HttpError(404, 'Producto no encontrado');
@@ -105,7 +141,12 @@ export async function putReceta(req: Request, res: Response): Promise<void> {
       update: { rendimiento: rendimiento ?? null, tecnologia: tecnologia?.trim() || null },
     });
     await tx.recetaItem.deleteMany({ where: { recetaId: r.id } });
-    await tx.recetaItem.createMany({ data: items.map((i) => ({ recetaId: r.id, insumoId: i.insumoId ?? null, componenteId: i.componenteId ?? null, cantidad: i.cantidad, neto: i.neto ?? null })) });
+    await tx.recetaItem.createMany({ data: items.map((i) => ({
+      recetaId: r.id, insumoId: i.insumoId ?? null, componenteId: i.componenteId ?? null, cantidad: i.cantidad,
+      neto: i.insumoId && (i.coldLossPct != null || i.hotLossPct != null)
+        ? netAfterProcessing(i.cantidad, i.coldLossPct, i.hotLossPct) : i.neto ?? null,
+      coldLossPct: i.insumoId ? i.coldLossPct ?? null : null, hotLossPct: i.insumoId ? i.hotLossPct ?? null : null,
+    })) });
   });
   res.json(await tarjeta(rid, productoId));
 }

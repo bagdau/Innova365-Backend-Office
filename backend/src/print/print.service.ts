@@ -4,6 +4,7 @@ import { Codepage } from './escpos';
 import { receiptDoc, kitchenDoc, closingDoc, testDoc, PedidoPrint, Restaurante } from './templates';
 import { sendToPrinter, PrinterCfg } from './transport';
 import { recordar, puntaje, salud } from './health';
+import { loadCashReport, type CashReportPeriod } from './cash-report';
 
 export type TipoImpresion = 'recibo' | 'cuenta' | 'cocina' | 'cierre' | 'prueba';
 
@@ -20,7 +21,8 @@ function cfgOf(p: { id: string; nombre: string; tipo: string; host: string | nul
 }
 
 function optsOf(p: PrinterCfg, lang: 'ru' | 'en') {
-  return { cols: p.ancho <= 58 ? 32 : p.ancho <= 80 ? 48 : 56, cp: (['cp866', 'cp1251', 'ascii'].includes(p.codepage) ? p.codepage : 'cp866') as Codepage, lang, cut: p.corte, drawer: p.cajon };
+  const ancho = p.ancho === 80 && /XP[-\s]?76/i.test(`${p.nombre} ${p.nombreSistema ?? ''}`) ? 76 : p.ancho;
+  return { cols: ancho <= 58 ? 32 : ancho <= 76 ? 33 : ancho <= 80 ? 48 : 56, cp: (['cp866', 'cp1251', 'ascii'].includes(p.codepage) ? p.codepage : 'cp866') as Codepage, lang, cut: p.corte, drawer: p.cajon };
 }
 
 async function loadPedido(restauranteId: string, id: string): Promise<{ p: PedidoPrint; r: Restaurante }> {
@@ -40,33 +42,23 @@ async function loadPedido(restauranteId: string, id: string): Promise<{ p: Pedid
     r,
     p: {
       numero: pedido.numero, tipo: pedido.tipo, estado: pedido.estado, metodoPago: pedido.metodoPago, total: pedido.total === null ? null : num(pedido.total),
-      creadoEn: pedido.creadoEn, mesa: pedido.mesa, mesero: pedido.mesero,
+      servicePercent: num(pedido.servicePercent), serviceAmount: num(pedido.serviceAmount), pagadoEn: pedido.pagadoEn,
+      creadoEn: pedido.creadoEn, actualizadoEn: pedido.actualizadoEn, mesa: pedido.mesa, mesero: pedido.mesero,
+      cajeroNombre: pedido.cajeroNombre, cajeroRol: pedido.cajeroRol,
       items: pedido.items.map((i) => ({ id: i.id, cantidad: i.cantidad, precio: num(i.precio), subtotal: num(i.subtotal), servido: i.servido, producto: i.producto })),
     },
   };
-}
-
-async function loadCierre(restauranteId: string) {
-  const inicio = new Date(); inicio.setHours(0, 0, 0, 0);
-  const [por, abiertos] = await Promise.all([
-    prisma.pedido.groupBy({
-      by: ['metodoPago'], where: { restauranteId, estado: 'PAGADO', creadoEn: { gte: inicio } }, _sum: { total: true }, _count: true,
-    }),
-    prisma.pedido.count({ where: { restauranteId, estado: { notIn: ['PAGADO', 'CANCELADO'] } } }),
-  ]);
-  const porMetodo = por.map((m) => ({ metodo: m.metodoPago ?? '—', total: num(m._sum.total), n: m._count }));
-  return { fecha: new Date(), pagados: porMetodo.reduce((s, m) => s + m.n, 0), ingresos: porMetodo.reduce((s, m) => s + m.total, 0), abiertos, porMetodo };
 }
 
 function repeat(buf: Buffer, n: number): Buffer {
   return n <= 1 ? buf : Buffer.concat(Array.from({ length: n }, () => buf));
 }
 
-async function buildDoc(tipo: TipoImpresion, p: PrinterCfg, restauranteId: string, pedidoId: string | undefined, lang: 'ru' | 'en', itemIds?: string[]): Promise<Buffer> {
+async function buildDoc(tipo: TipoImpresion, p: PrinterCfg, restauranteId: string, pedidoId: string | undefined, lang: 'ru' | 'en', itemIds?: string[], periodo?: CashReportPeriod): Promise<Buffer> {
   const o = optsOf(p, lang);
   if (tipo === 'prueba') return testDoc(p.nombre, p.ancho, o.cp, o);
   if (tipo === 'cierre') {
-    const [c, r] = await Promise.all([loadCierre(restauranteId), prisma.restaurante.findUniqueOrThrow({ where: { id: restauranteId } })]);
+    const [c, r] = await Promise.all([loadCashReport(restauranteId, periodo), prisma.restaurante.findUniqueOrThrow({ where: { id: restauranteId } })]);
     return closingDoc(r, c, o);
   }
   if (!pedidoId) throw new HttpError(400, 'Datos inválidos');
@@ -80,16 +72,16 @@ async function buildDoc(tipo: TipoImpresion, p: PrinterCfg, restauranteId: strin
  * Нужно, когда сервер стоит в интернете и не видит принтер в сети кассы.
  */
 export async function generarBytes(args: {
-  restauranteId: string; tipo: Exclude<TipoImpresion, 'prueba'> | 'prueba'; pedidoId?: string; ancho: number; codepage: string; corte: boolean; cajon: boolean; lang?: 'ru' | 'en';
+  restauranteId: string; tipo: Exclude<TipoImpresion, 'prueba'> | 'prueba'; pedidoId?: string; ancho: number; codepage: string; corte: boolean; cajon: boolean; lang?: 'ru' | 'en'; periodo?: CashReportPeriod;
 }): Promise<{ data: string; bytes: number }> {
   const cfg: PrinterCfg = { id: 'local', nombre: 'Local', tipo: 'RED', host: null, puerto: null, nombreSistema: null, token: null, ancho: args.ancho, codepage: args.codepage, corte: args.corte, cajon: args.cajon, copias: 1 };
-  const doc = await buildDoc(args.tipo, cfg, args.restauranteId, args.pedidoId, args.lang ?? 'ru');
+  const doc = await buildDoc(args.tipo, cfg, args.restauranteId, args.pedidoId, args.lang ?? 'ru', undefined, args.periodo);
   return { data: doc.toString('base64'), bytes: doc.length };
 }
 
 /** Печатает документ на подходящие принтеры. fallback=true — нужно печатать через браузер. */
 export async function imprimir(args: {
-  restauranteId: string; tipo: Exclude<TipoImpresion, 'prueba'>; pedidoId?: string; impresoraId?: string; lang?: 'ru' | 'en'; usuarioId?: string; itemIds?: string[]; soloAuto?: boolean;
+  restauranteId: string; tipo: Exclude<TipoImpresion, 'prueba'>; pedidoId?: string; impresoraId?: string; lang?: 'ru' | 'en'; usuarioId?: string; itemIds?: string[]; soloAuto?: boolean; periodo?: CashReportPeriod;
 }): Promise<{ resultados: ResultadoImpresion[]; fallback: boolean; ancho: number }> {
   const { restauranteId, tipo, pedidoId, impresoraId, usuarioId, itemIds, soloAuto } = args;
   const lang = args.lang ?? 'ru';
@@ -115,7 +107,7 @@ export async function imprimir(args: {
     const cfg = cfgOf(row);
     const t0 = Date.now();
     try {
-      const doc = await buildDoc(tipo, cfg, restauranteId, pedidoId, lang, itemIds);
+      const doc = await buildDoc(tipo, cfg, restauranteId, pedidoId, lang, itemIds, args.periodo);
       await sendToPrinter(cfg, repeat(doc, tipo === 'cocina' ? 1 : cfg.copias));
       const ms = Date.now() - t0;
       recordar(row.id, true, ms);
@@ -159,6 +151,33 @@ export function autoImprimir(restauranteId: string, tipo: 'recibo' | 'cocina', p
   imprimir({ restauranteId, tipo, pedidoId, soloAuto: true, ...opts }).catch((e) => console.error('[autoImprimir]', e));
 }
 
+
+export interface EstacionDoc { impresoraId: string; impresora: string; host: string | null; puerto: number; ancho: number; items: number; data: string }
+
+/**
+ * Тикеты станций к чеку: позиции заказа группируются по принтеру категории (Categoria.impresoraId),
+ * для каждого принтера — готовые байты ESC/POS. Печатает их агент на кассе (сервер в интернете сеть кассы не видит).
+ * Категории без принтера и неактивные принтеры пропускаются.
+ */
+export async function estacionesBytes(restauranteId: string, pedidoId: string, lang: 'ru' | 'en' = 'ru'): Promise<EstacionDoc[]> {
+  const { p: pedido } = await loadPedido(restauranteId, pedidoId);
+  const rows = await prisma.itemPedido.findMany({
+    where: { pedidoId, pedido: { restauranteId } },
+    select: { id: true, producto: { select: { categoria: { select: { impresora: true } } } } },
+  });
+  const groups = new Map<string, { row: NonNullable<(typeof rows)[number]['producto']['categoria']['impresora']>; ids: string[] }>();
+  for (const it of rows) {
+    const imp = it.producto.categoria.impresora;
+    if (!imp || !imp.activa || imp.tipo === 'NAVEGADOR') continue;
+    const g = groups.get(imp.id) ?? { row: imp, ids: [] };
+    g.ids.push(it.id); groups.set(imp.id, g);
+  }
+  return [...groups.values()].map(({ row, ids }) => {
+    const cfg = cfgOf(row);
+    const doc = kitchenDoc(pedido, optsOf(cfg, lang), ids, { title: row.nombre });
+    return { impresoraId: row.id, impresora: row.nombre, host: row.host, puerto: row.puerto ?? 9100, ancho: row.ancho, items: ids.length, data: repeat(doc, 1).toString('base64') };
+  });
+}
 
 /** Состояние всех активных принтеров (для окна печати: зелёная/красная точка и автоподбор). */
 export async function estadoImpresoras(restauranteId: string) {

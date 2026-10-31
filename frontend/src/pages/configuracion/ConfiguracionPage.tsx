@@ -10,19 +10,37 @@ import { cn } from '../../utils/cn';
 import { Select } from '../../components/ui/Select';
 import { t, apiError } from '../../i18n';
 import PrintersSettings from './PrintersSettings';
+import PrintEditor from './PrintEditor';
+import DesktopActivation from './DesktopActivation';
+import BillingStatus from './BillingStatus';
+import { useAuthStore } from '../../store/authStore';
 import { CURRENCIES, currencyName } from '../../lib/currency';
 
-const TABS = ['General', 'Pagos y moneda', 'Mesas', 'Impresoras', 'Notificaciones'];
+const TABS = ['General', 'Pagos y moneda', 'Mesas', 'Impresoras', 'Чеки и отчёты', 'Notificaciones', 'Приложение'];
+
+/** Сводка по времени работы «ЧЧ:ММ»; закрытие раньше открытия — работа через полночь. */
+function workingHours(from?: string | null, to?: string | null): { from: string; to: string; hours: number; overnight: boolean } | null {
+  const m = (v?: string | null) => { const r = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(v ?? ''); return r ? Number(r[1]) * 60 + Number(r[2]) : null; };
+  const a = m(from), b = m(to);
+  if (a === null || b === null || !from || !to) return null;
+  const mins = (b - a + 1440) % 1440 || 1440;
+  return { from, to, hours: Math.round((mins / 60) * 10) / 10, overnight: b <= a && mins !== 1440 };
+}
 
 export default function ConfiguracionPage() {
   const [tab, setTab] = useState('General');
   const [timer, setTimer] = useState<number>(45);
   const qc = useQueryClient();
+  const owner = useAuthStore((st) => st.user?.rol === 'SUPERADMIN' || st.user?.rol === 'ADMIN');
+  const billingOwner = useAuthStore((st) => st.user?.rol === 'SUPERADMIN');
 
   const { data: restaurante } = useQuery<Restaurante>({ queryKey: ['restaurante'], queryFn: reportesService.getRestaurante });
   const { data: mesas = [] } = useQuery<Mesa[]>({ queryKey: ['mesas'], queryFn: mesasService.getAll });
 
-  const { register, handleSubmit, reset, formState: { isSubmitting } } = useForm();
+  const { register, handleSubmit, reset, watch, formState: { isSubmitting } } = useForm();
+  const horaApertura = watch('horaApertura') as string | null | undefined;
+  const horaCierre = watch('horaCierre') as string | null | undefined;
+  const horario = workingHours(horaApertura, horaCierre);
   useEffect(() => {
     if (restaurante) {
       reset(restaurante);
@@ -49,11 +67,12 @@ export default function ConfiguracionPage() {
 
   const [moneda, setMoneda] = useState('KZT');
   const [qrPago, setQrPago] = useState('');
+  const [qrTicket, setQrTicket] = useState('');
   useEffect(() => {
-    if (restaurante) { setMoneda((restaurante as any).moneda ?? 'KZT'); setQrPago((restaurante as any).qrPago ?? ''); }
+    if (restaurante) { setMoneda((restaurante as any).moneda ?? 'KZT'); setQrPago((restaurante as any).qrPago ?? ''); setQrTicket((restaurante as any).qrTicket ?? ''); }
   }, [restaurante]);
   const savePagos = useMutation({
-    mutationFn: () => reportesService.updateRestaurante({ moneda, qrPago: qrPago.trim() || null }),
+    mutationFn: () => reportesService.updateRestaurante({ moneda, qrPago: qrPago.trim() || null, qrTicket: qrTicket.trim() || null }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['restaurante'] }); toast.success(t('Configuración guardada')); },
     onError: (e) => toast.error(apiError(e, 'Error al guardar')),
   });
@@ -67,7 +86,7 @@ export default function ConfiguracionPage() {
     <div className="flex flex-col md:flex-row gap-4 md:gap-6">
       {/* Разделы: на телефоне — горизонтальная лента, на планшете/десктопе — колонка слева */}
       <div className="md:w-44 md:flex-shrink-0 flex md:block gap-1.5 md:space-y-1 overflow-x-auto pb-1 md:pb-0 -mx-1 px-1">
-        {TABS.map((tabName) => (
+        {TABS.filter((name) => name !== 'Приложение' || owner).map((tabName) => (
           <button key={tabName} onClick={() => setTab(tabName)}
             className={cn('md:w-full text-left px-3 py-2.5 rounded-m text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0', tab === tabName ? 'bg-primary text-white' : 'text-muted-foreground hover:text-foreground hover:bg-muted')}>
             {t(tabName)}
@@ -79,14 +98,31 @@ export default function ConfiguracionPage() {
         {tab === 'General' && (
           <div className="bg-card border border-border rounded-l p-6">
             <h3 className="text-base font-semibold text-foreground mb-5">{t('Datos del restaurante')}</h3>
-            <form onSubmit={handleSubmit((d) => saveGeneral.mutate(d))} className="space-y-4 max-w-lg">
-              {[['nombre', t('Nombre del restaurante')], ['direccion', t('Dirección')], ['telefono', t('Teléfono')], ['pieTicket', t('Texto al pie del recibo')], ['qrTicket', t('Contenido del QR en el recibo (enlace)')]].map(([field, label]) => (
+            <form onSubmit={handleSubmit((d) => saveGeneral.mutate({ ...d, horaApertura: d.horaApertura || null, horaCierre: d.horaCierre || null }))} className="space-y-4 max-w-lg">
+              {[['nombre', t('Nombre del restaurante')], ['direccion', t('Dirección')], ['telefono', t('Teléfono')], ['pieTicket', t('Texto al pie del recibo')]].map(([field, label]) => (
                 <div key={field}>
                   <label className="text-sm font-medium text-foreground block mb-1.5">{label}</label>
                   <input {...register(field)} className="w-full bg-muted border border-border rounded-m px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
                   {field === 'nombre' && <p className="text-xs text-muted-foreground mt-1">{t('Al cambiar el nombre, los correos del personal reciben el nuevo dominio (nombre@restaurante.com). Hay que entrar con el correo nuevo.')}</p>}
                 </div>
               ))}
+              <div>
+                <label className="text-sm font-medium text-foreground block mb-1.5">{t('Время работы ресторана')}</label>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <label className="flex items-center gap-2 text-sm text-muted-foreground">{t('Открытие')}
+                    <input type="time" {...register('horaApertura')} className="bg-muted border border-border rounded-m px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
+                  </label>
+                  <span className="text-muted-foreground">—</span>
+                  <label className="flex items-center gap-2 text-sm text-muted-foreground">{t('Закрытие')}
+                    <input type="time" {...register('horaCierre')} className="bg-muted border border-border rounded-m px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
+                  </label>
+                </div>
+                <p className="text-xs mt-1.5 text-muted-foreground">
+                  {horario
+                    ? <span className="inline-flex items-center gap-2"><span className="px-2 py-0.5 rounded-full bg-primary/15 text-primary font-semibold">{horario.from} — {horario.to}</span>{horario.hours === 24 ? t('круглосуточно') : `${horario.hours} ${t('ч в день')}`}{horario.overnight ? ` · ${t('закрытие после полуночи')}` : ''}</span>
+                    : t('Укажите время открытия и закрытия. Если ресторан закрывается после полуночи (например 02:00), просто введите это время.')}
+                </p>
+              </div>
               <Button type="submit" loading={isSubmitting}>{t('Guardar cambios')}</Button>
             </form>
           </div>
@@ -102,9 +138,15 @@ export default function ConfiguracionPage() {
               <p className="text-xs text-muted-foreground mt-2">{t('Ejemplo')}: {(() => { const c = CURRENCIES.find((x) => x.code === moneda); if (!c) return ''; const n = new Intl.NumberFormat(undefined, { minimumFractionDigits: c.decimals, maximumFractionDigits: c.decimals }).format(1500.5); return 'before' in c && c.before ? `${c.symbol}${n}` : `${n} ${c.symbol}`; })()}</p>
             </div>
             <div>
-              <h3 className="text-base font-semibold text-foreground mb-1">{t('QR para pago')}</h3>
-              <p className="text-sm text-muted-foreground mb-3">{t('Enlace o datos que se codifican en el QR al pagar con «QR». Puedes usar {total}, {numero}, {moneda}, {restaurante}.')}</p>
+              <h3 className="text-base font-semibold text-foreground mb-1">{t('QR для оплаты')}</h3>
+              <p className="text-sm text-muted-foreground mb-3">{t('Ссылка или реквизиты для QR, который показывается клиенту при оплате «QR» (Kaspi и т. п.). На чек этот QR не попадает. Можно использовать {total}, {numero}, {moneda}, {restaurante}.')}</p>
               <input value={qrPago} onChange={(e) => setQrPago(e.target.value)} placeholder="https://pay.example.com/shop?amount={total}"
+                className="w-full bg-muted border border-border rounded-m px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-foreground mb-1">{t('QR на чеке')}</h3>
+              <p className="text-sm text-muted-foreground mb-3">{t('Ссылка в QR-коде, который печатается внизу чека (например Instagram, 2GIS или страница отзывов). Если пусто — в QR попадут данные чека. Можно использовать {numero}, {total}, {fecha}, {moneda}, {restaurante}.')}</p>
+              <input value={qrTicket} onChange={(e) => setQrTicket(e.target.value)} placeholder="https://www.instagram.com/ваш_аккаунт"
                 className="w-full bg-muted border border-border rounded-m px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
             </div>
             <Button loading={savePagos.isPending} onClick={() => savePagos.mutate()}>{t('Guardar cambios')}</Button>
@@ -141,6 +183,8 @@ export default function ConfiguracionPage() {
         )}
 
         {tab === 'Impresoras' && <PrintersSettings />}
+        {tab === 'Чеки и отчёты' && <PrintEditor restaurante={restaurante} />}
+        {tab === 'Приложение' && owner && <div className="space-y-4">{billingOwner && <BillingStatus />}<DesktopActivation /></div>}
 
         {tab === 'Notificaciones' && (
           <div className="bg-card border border-border rounded-l p-6">

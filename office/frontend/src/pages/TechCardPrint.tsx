@@ -6,7 +6,7 @@ import { ErrorBox, Loading, useFetch } from '../ui';
 
 interface Card {
   productoId: string; nombre: string; categoria: string; precio: number; rendimiento: number | null; tecnologia: string; costo: number; margen: number | null;
-  items: { id: string; tipo: 'insumo' | 'plato'; nombre: string; unidad: string; cantidad: number; neto: number | null; costo: number | null }[];
+  items: { id: string; tipo: 'insumo' | 'plato'; nombre: string; unidad: string; cantidad: number; neto: number | null; coldLossPct: number | null; hotLossPct: number | null; costo: number | null }[];
   state: { status: string; statusLabel: string; version: number | null; updatedBy: string | null; updatedAt: string | null; approvedBy: string | null; approvedAt: string | null };
 }
 
@@ -35,13 +35,13 @@ export default function TechCardPrint() {
           <div><span className="text-gray-500">Выход готового блюда:</span> <b>{data.rendimiento ? `${num(data.rendimiento)} г/мл` : '—'}</b></div><div><span className="text-gray-500">Редакция:</span> {data.state.version ? `v${data.state.version}` : '—'} · {data.state.statusLabel}</div>
         </div>
         <table className="mb-4 w-full border-collapse text-[12px]">
-          <thead><tr className="bg-gray-100"><th className="w-8 border border-gray-400 p-1.5">№</th><th className="border border-gray-400 p-1.5 text-left">Наименование сырья и продуктов</th><th className="w-[90px] border border-gray-400 p-1.5 text-right">Брутто</th><th className="w-[90px] border border-gray-400 p-1.5 text-right">Нетто</th></tr></thead>
+          <thead><tr className="bg-gray-100"><th className="w-8 border border-gray-400 p-1.5">№</th><th className="border border-gray-400 p-1.5 text-left">Наименование сырья и продуктов</th><th className="w-[70px] border border-gray-400 p-1.5 text-right">Брутто</th><th className="w-[65px] border border-gray-400 p-1.5 text-right">Холодная, %</th><th className="w-[65px] border border-gray-400 p-1.5 text-right">Горячая, %</th><th className="w-[70px] border border-gray-400 p-1.5 text-right">Нетто</th></tr></thead>
           <tbody>
             {data.items.map((i, k) => (
               <tr key={i.id}><td className="border border-gray-400 p-1.5 text-center">{k + 1}</td><td className="border border-gray-400 p-1.5">{i.nombre}{i.tipo === 'plato' ? ' (готовое блюдо)' : ''}</td>
-                <td className="border border-gray-400 p-1.5 text-right">{num(i.cantidad * f(i.unidad), 3)} {du(i.unidad)}</td><td className="border border-gray-400 p-1.5 text-right">{i.neto !== null ? `${num(i.neto * f(i.unidad), 3)} ${du(i.unidad)}` : '—'}</td></tr>
+                <td className="border border-gray-400 p-1.5 text-right">{num(i.cantidad * f(i.unidad), 3)} {du(i.unidad)}</td><td className="border border-gray-400 p-1.5 text-right">{i.coldLossPct === null ? '—' : `${num(i.coldLossPct)}%`}</td><td className="border border-gray-400 p-1.5 text-right">{i.hotLossPct === null ? '—' : `${num(i.hotLossPct)}%`}</td><td className="border border-gray-400 p-1.5 text-right">{i.neto !== null ? `${num(i.neto * f(i.unidad), 3)} ${du(i.unidad)}` : '—'}</td></tr>
             ))}
-            <tr className="font-semibold"><td className="border border-gray-400 p-1.5" colSpan={3}>Выход</td><td className="border border-gray-400 p-1.5 text-right">{data.rendimiento ? `${num(data.rendimiento)}` : '—'}</td></tr>
+            <tr className="font-semibold"><td className="border border-gray-400 p-1.5" colSpan={5}>Выход</td><td className="border border-gray-400 p-1.5 text-right">{data.rendimiento ? `${num(data.rendimiento)}` : '—'}</td></tr>
           </tbody>
         </table>
         <section className="mb-4"><h2 className="mb-1 text-[13px] font-bold uppercase">Технология приготовления</h2><div className="whitespace-pre-wrap text-[12.5px]">{data.tecnologia || '—'}</div></section>

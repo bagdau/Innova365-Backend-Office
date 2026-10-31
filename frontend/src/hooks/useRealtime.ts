@@ -14,6 +14,8 @@ export function useRealtime() {
   const qc = useQueryClient();
 
   useEffect(() => {
+    // Автономная касса читает свою локальную БД; внешняя подписка ей не нужна.
+    if (window.innovaNative?.isDesktop && location.hostname === '127.0.0.1') return;
     if (!import.meta.env.VITE_SUPABASE_URL) return; // desactivado si no hay config
 
     // Supabase se carga bajo demanda: sin configuración no pesa en el bundle inicial

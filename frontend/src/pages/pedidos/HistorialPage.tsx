@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { StationToggles } from '../../components/shared/StationToggles';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Search, Eye, Clock, UtensilsCrossed, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Eye, Clock, UtensilsCrossed, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Modal } from '../../components/ui/Modal';
 import { pedidosService } from '../../services/pedidos.service';
@@ -9,6 +11,8 @@ import type { Pedido, PaginatedResponse } from '../../types';
 import { payLabel } from '../../lib/payments';
 import { t } from '../../i18n';
 import { printOrder } from '../../lib/printClient';
+import { useAuthStore } from '../../store/authStore';
+import { can } from '../../auth/permissions';
 
 const ESTADOS = ['', 'PENDIENTE', 'EN_COCINA', 'EN_PREPARACION', 'LISTO', 'ENTREGADO', 'PAGADO', 'CANCELADO'];
 
@@ -23,27 +27,32 @@ const ESTADO_LABELS: Record<string, string> = {
 };
 
 export default function HistorialPage() {
+  const navigate = useNavigate();
+  const rol = useAuthStore((s) => s.user?.rol);
   const [search, setSearch] = useState('');
+  const [query, setQuery] = useState('');
   const [estado, setEstado] = useState('');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Pedido | null>(null);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => { setQuery(search.trim()); setPage(1); }, 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
   const { data, isLoading } = useQuery<PaginatedResponse<Pedido>>({
-    queryKey: ['pedidos', estado, page],
-    queryFn: () => pedidosService.getAll({ ...(estado && { estado }), page: String(page), limit: '20' }),
+    queryKey: ['pedidos', estado, page, query],
+    queryFn: () => pedidosService.getAll({ ...(estado && { estado }), ...(query && { q: query }), page: String(page), limit: '20' }),
     refetchInterval: 30000, // refresca cada 15s para mostrar datos actualizados
   });
 
-  const pedidos = (data?.data ?? []).filter(p =>
-    !search ||
-    p.mesa?.numero?.toString().includes(search) ||
-    p.numero?.toString().includes(search)
-  );
+  const pedidos = data?.data ?? [];
 
   const totalPages = Math.ceil((data?.total ?? 0) / 20);
 
   return (
     <div className="space-y-4">
+      <StationToggles />
       {/* Filtros */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[180px] max-w-xs">
@@ -55,6 +64,12 @@ export default function HistorialPage() {
             className="w-full bg-muted border border-border rounded-lg pl-8 pr-4 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
           />
         </div>
+        {can(rol, 'pedidosNuevo') && (
+          <button onClick={() => navigate('/pedidos/nuevo')}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:opacity-90">
+            <Plus size={16} /> {t('Nuevo Pedido')}
+          </button>
+        )}
         <div className="flex gap-2 flex-wrap">
           {ESTADOS.map((e) => (
             <button
@@ -178,9 +193,9 @@ export default function HistorialPage() {
                 <p className="font-semibold text-foreground">
                   {selected.mesa ? t('Mesa {n}', { n: selected.mesa.numero }) : t('Para llevar')}
                 </p>
-                {selected.mesero && (
-                  <p className="text-xs text-muted-foreground mt-0.5">{t('Mesero:')} {selected.mesero.nombre}</p>
-                )}
+                {selected.mesero && <p className="text-xs text-muted-foreground mt-0.5">{t('Pedido registrado por')}: {selected.mesero.nombre}</p>}
+                {selected.cocineroNombre && <p className="text-xs text-muted-foreground mt-0.5">{t('Готовность отметил')}: {selected.cocineroNombre}</p>}
+                {selected.cajeroNombre && <p className="text-xs text-muted-foreground mt-0.5">{t('Оплату принял')}: {selected.cajeroNombre}</p>}
               </div>
               <StatusBadge variant={selected.estado.toLowerCase()} />
             </div>
@@ -190,7 +205,7 @@ export default function HistorialPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
-                    <th className="text-left px-4 py-2.5 text-xs text-muted-foreground uppercase font-medium">{t('Producto')}</th>
+                    <th className="text-left px-4 py-2.5 text-xs text-muted-foreground uppercase font-medium">{t('Наименование позиции')}</th>
                     <th className="text-center px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground uppercase font-medium">{t('Cant.')}</th>
                     <th className="text-right px-4 py-2.5 text-xs text-muted-foreground uppercase font-medium">{t('Subtotal')}</th>
                   </tr>

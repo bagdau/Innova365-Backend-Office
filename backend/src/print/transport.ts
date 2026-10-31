@@ -51,7 +51,7 @@ const NOT_RECEIPT = /(pdf|xps|onenote|fax|microsoft|anydesk|virtual|send to)/i;
 
 /** «Умный» выбор принтера на ПК с агентом: подключён и не офлайн → USB-порт → название чекового принтера → принтер по умолчанию. */
 export function elegirMejor(list: Array<{ name: string; port?: string; offline?: boolean; isDefault?: boolean }>): string | null {
-  const ok = list.filter((p) => !p.offline && !NOT_RECEIPT.test(p.name));
+  const ok = list.filter((p) => !p.offline && !NOT_RECEIPT.test(p.name) && (THERMAL.test(p.name) || /(generic|text only)/i.test(p.name)));
   const score = (p: (typeof ok)[number]) => (THERMAL.test(p.name) ? 4 : 0) + (/^USB|^COM|^LPT|^IP_|^192|^10\./i.test(p.port ?? '') ? 2 : 0) + (p.isDefault ? 1 : 0);
   return ok.sort((a, b) => score(b) - score(a))[0]?.name ?? null;
 }

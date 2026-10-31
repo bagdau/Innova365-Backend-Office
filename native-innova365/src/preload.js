@@ -13,6 +13,7 @@ if (location.protocol === 'file:') {
   const call = (/** @type {string} */ ch, /** @type {any[]} */ ...args) => ipcRenderer.invoke('ui:' + ch, ...args);
   contextBridge.exposeInMainWorld('innova', {
     state: () => call('state'),
+    activate: (/** @type {string} */ code) => call('activate', code),
     unlock: (/** @type {string} */ pin) => call('unlock', pin),
     save: (/** @type {any} */ patch) => call('save', patch),
     setPin: (/** @type {string} */ pin) => call('setPin', pin),
@@ -37,6 +38,10 @@ if (location.protocol === 'file:') {
     isDesktop: true,
     get version() { return info.version; },
     platform: process.platform,
+    systemPrinters: () => ipcRenderer.invoke('web:systemPrinters'),
+    printDocument: (/** @type {string} */ html, /** @type {string} */ deviceName,
+      /** @type {{widthMm:number,heightMm:number}} */ page) =>
+      ipcRenderer.invoke('web:printDocument', html, deviceName, page),
   });
   // мост для печати документа: вызывается переопределённым window.print()
   contextBridge.exposeInMainWorld('__innovaPrintHtml', (/** @type {string} */ html, /** @type {{title?: string}} */ opts) => ipcRenderer.invoke('web:printHtml', String(html).slice(0, 4_000_000), opts || {}));

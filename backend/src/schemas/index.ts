@@ -2,8 +2,13 @@ import { z } from 'zod';
 
 /* ──────── Auth ──────── */
 export const loginSchema = z.object({
-  email:    z.string().email('Email inválido').max(120),
-  password: z.string().min(6, 'Mínimo 6 caracteres').max(120),
+  email: z.string().email('Email inválido').max(120).optional(),
+  password: z.string().min(6, 'Mínimo 6 caracteres').max(120).optional(),
+  pin: z.string().regex(/^\d{4}$/, 'PIN должен состоять из 4 цифр').optional(),
+}).refine((value) => Number(value.password !== undefined) + Number(value.pin !== undefined) === 1, {
+  message: 'Укажите пароль или PIN',
+}).refine((value) => !value.password || !!value.email, {
+  message: 'Для входа по паролю укажите email',
 });
 
 /* ──────── Pedidos ──────── */
@@ -15,6 +20,7 @@ export const itemPedidoSchema = z.object({
 export const createPedidoSchema = z.object({
   tipo:   z.enum(['EN_MESA', 'PARA_LLEVAR']),
   mesaId: z.string().optional().nullable(),
+  meseroId: z.string().min(1).optional().nullable(),
   items:  z.array(itemPedidoSchema).min(1, 'Mínimo 1 item'),
 });
 
@@ -24,6 +30,7 @@ export const updateEstadoSchema = z.object({
 
 export const registrarPagoSchema = z.object({
   metodoPago: z.enum(['Efectivo', 'Tarjeta', 'QR', 'Transferencia']),
+  expectedTotal: z.number().nonnegative().optional(),
 });
 
 /* ──────── Mesas ──────── */
@@ -47,6 +54,8 @@ export const createUsuarioSchema = z.object({
   email:    z.string().email().max(120),
   password: z.string().min(6).max(120),
   rol:      z.enum(['SUPERADMIN', 'ADMIN', 'MESERO', 'COCINERO', 'CAJERO', 'REPARTIDOR']),
+  waiterPercent: z.number().min(0).max(100).multipleOf(0.01).optional(),
+  pin:      z.string().regex(/^\d{4}$/, 'PIN должен состоять из 4 цифр').optional(),
 });
 
 export const updateUsuarioSchema = z.object({
@@ -54,8 +63,11 @@ export const updateUsuarioSchema = z.object({
   email:    z.string().email().max(120).optional(),
   password: z.string().min(6).max(120).optional(),
   rol:      z.enum(['SUPERADMIN', 'ADMIN', 'MESERO', 'COCINERO', 'CAJERO', 'REPARTIDOR']).optional(),
+  waiterPercent: z.number().min(0).max(100).multipleOf(0.01).optional(),
   activo:   z.boolean().optional(),
-});
+  pin:      z.string().regex(/^\d{4}$/, 'PIN должен состоять из 4 цифр').optional(),
+  clearPin: z.boolean().optional(),
+}).refine((value) => !(value.pin && value.clearPin), { message: 'Нельзя одновременно установить и удалить PIN' });
 
 export const updatePerfilSchema = z.object({
   nombre: z.string().min(2).max(80).optional(),
@@ -122,6 +134,8 @@ export const recetaSchema = z.object({
     componenteId: z.string().min(1).optional().nullable(),
     cantidad: z.number().positive().max(1_000_000),
     neto: z.number().min(0).max(1_000_000).optional().nullable(),
+    coldLossPct: z.number().min(0).max(100).optional().nullable(),
+    hotLossPct: z.number().min(0).max(100).optional().nullable(),
   })).max(60),
 });
 
@@ -163,6 +177,7 @@ export const imprimirSchema = z.object({
   pedidoId: z.string().optional(),
   impresoraId: z.string().optional(),
   lang: z.enum(['ru', 'en']).optional(),
+  periodo: z.enum(['hoy', 'semana', 'mes']).optional(),
 }).refine((d) => d.tipo === 'cierre' || !!d.pedidoId, { message: 'Datos inválidos', path: ['pedidoId'] });
 
 /* ──────── Меню ──────── */
@@ -184,6 +199,8 @@ export const updateProductoSchema = createProductoSchema.partial();
 
 export const categoriaSchema = z.object({
   nombre: z.string().trim().min(1, 'Укажите название').max(60),
+  /** принтер станции (кухня/бар/самса); null — позиции категории ни на какую станцию не печатаются */
+  impresoraId: z.string().min(1).nullable().optional(),
 });
 
 /* ──────── Склад: ингредиенты ──────── */
@@ -211,7 +228,11 @@ export const updateInsumoSchema = z.object({
 
 /* ──────── Настройки ресторана ──────── */
 const optTxt = (max: number) => z.string().trim().max(max).nullable().optional();
+/** Время «ЧЧ:ММ» (24 ч); null — не задано */
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Время в формате ЧЧ:ММ').nullable().optional();
 export const updateRestauranteSchema = z.object({
+  horaApertura: hhmm,
+  horaCierre: hhmm,
   nombre: z.string().trim().min(1, 'Укажите название').max(80).optional(),
   direccion: optTxt(200),
   telefono: optTxt(40),
@@ -220,4 +241,13 @@ export const updateRestauranteSchema = z.object({
   qrTicket: optTxt(1000),
   moneda: z.string().max(5).optional(),
   qrPago: optTxt(1000),
+  printSettings: z.object({
+    receipt: z.object({
+      width: z.number().int().refine((n) => [58, 76, 80, 90].includes(n)),
+      title: z.string().trim().min(1).max(80),
+      showAddress: z.boolean(), showPhone: z.boolean(), showQr: z.boolean(), showCashier: z.boolean(),
+      footer: z.string().trim().max(160),
+    }).strict(),
+    report: z.object({ width: z.number().int().refine((n) => [58, 76, 80, 90].includes(n)), title: z.string().trim().min(1).max(80) }).strict(),
+  }).strict().optional(),
 });

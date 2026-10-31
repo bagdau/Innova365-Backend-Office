@@ -1,41 +1,106 @@
 {
   "name": "innova365-desktop",
   "productName": "Innova365",
-  "version": "1.0.0",
-  "description": "Настольное приложение Innova365: касса, встроенная печать на чековые принтеры, режим киоска",
+  "version": "1.2.0-beta.2",
+  "description": "Автономная касса Innova365 с локальными API, PostgreSQL и печатью",
   "main": "src/main.js",
   "private": true,
   "author": "Innova365",
   "license": "UNLICENSED",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "electron .",
     "typecheck": "tsc -p .",
     "test": "node --test \"test/*.test.js\"",
     "test:app": "electron test/app-smoke.js",
     "test:ui": "electron test/app-smoke-ui.js",
+    "test:offline": "electron test/app-smoke-offline.js",
+    "build:ui": "npm --prefix ../frontend run build",
+    "build:api": "npm --prefix ../backend run build",
     "pack": "electron-builder --dir",
-    "dist": "electron-builder --win nsis",
+    "vc-runtime": "node tools/ensure-vc-runtime.js",
+    "dist": "npm run vc-runtime && npm run build:api && npm run build:ui && electron-builder --win nsis",
     "icon": "python build/make-icon.py"
   },
   "build": {
     "appId": "kz.innova365.desktop",
     "productName": "Innova365",
     "artifactName": "Innova365-Setup-${version}.${ext}",
-    "directories": { "output": "dist" },
+    "directories": {
+      "output": "dist"
+    },
     "files": [
       "src/**/*",
       "lib/**/*.js",
       "frontend/**/*",
       "build/icon.png",
+      "build/icon.ico",
       "package.json"
     ],
     "extraResources": [
-      { "from": "lib/ps", "to": "ps", "filter": ["*.ps1"] }
+      {
+        "from": "../frontend/dist",
+        "to": "pos-ui",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../backend",
+        "to": "backend",
+        "filter": [
+          "dist/**/*",
+          "prisma/**/*",
+          "package.json"
+        ]
+      },
+      {
+        "from": "../backend/node_modules",
+        "to": "backend/node_modules",
+        "filter": [
+          "**/*",
+          "!**/.cache/**/*"
+        ]
+      },
+      {
+        "from": "vendor/pgsql",
+        "to": "postgresql",
+        "filter": [
+          "bin/**/*",
+          "lib/**/*",
+          "share/**/*",
+          "server_license.txt",
+          "commandlinetools_3rd_party_licenses.txt"
+        ]
+      },
+      {
+        "from": "vendor/seed.sql",
+        "to": "seed.sql"
+      },
+      {
+        "from": "vendor/offline-manifest.json",
+        "to": "offline-manifest.json"
+      },
+      {
+        "from": "lib/ps",
+        "to": "ps",
+        "filter": [
+          "*.ps1"
+        ]
+      }
     ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
-      "icon": "build/icon.png"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,

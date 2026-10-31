@@ -132,17 +132,25 @@ async function nombreLibre(restauranteId: string, nombre: string, exceptId?: str
   if (dup) throw new HttpError(409, 'Категория с таким названием уже есть');
 }
 
+async function checkImpresora(restauranteId: string, impresoraId?: string | null): Promise<void> {
+  if (!impresoraId) return;
+  const p = await prisma.impresora.findFirst({ where: { id: impresoraId, restauranteId }, select: { id: true } });
+  if (!p) throw new HttpError(400, 'Принтер не найден');
+}
+
 export async function createCategoria(req: Request, res: Response): Promise<void> {
-  const { nombre } = req.body;
+  const { nombre, impresoraId } = req.body;
   await nombreLibre(req.restauranteId!, nombre);
-  const categoria = await prisma.categoria.create({ data: { nombre, restauranteId: req.restauranteId! } });
+  await checkImpresora(req.restauranteId!, impresoraId);
+  const categoria = await prisma.categoria.create({ data: { nombre, restauranteId: req.restauranteId!, impresoraId: impresoraId ?? null } });
   res.status(201).json(categoria);
 }
 
 export async function updateCategoria(req: Request, res: Response): Promise<void> {
-  const { nombre } = req.body;
+  const { nombre, impresoraId } = req.body;
   await nombreLibre(req.restauranteId!, nombre, req.params.id);
-  const categoria = await prisma.categoria.update({ where: { id: req.params.id, restauranteId: req.restauranteId! }, data: { nombre } });
+  await checkImpresora(req.restauranteId!, impresoraId);
+  const categoria = await prisma.categoria.update({ where: { id: req.params.id, restauranteId: req.restauranteId! }, data: { nombre, ...(impresoraId !== undefined ? { impresoraId } : {}) } });
   res.json(categoria);
 }
 

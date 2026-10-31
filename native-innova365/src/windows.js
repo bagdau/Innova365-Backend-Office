@@ -32,7 +32,7 @@ function createWindows(ctx) {
   const isTrusted = (/** @type {string} */ url) => {
     const o = originOf(url);
     if (!o) return false;
-    return sameOrigin(url, config.get().serverUrl) || ctx.redirectOrigins.has(o);
+    return sameOrigin(url, config.get().serverUrl) || (!!ctx.localUi && sameOrigin(url, ctx.localUi.url)) || ctx.redirectOrigins.has(o);
   };
   const isTrustedOffice = (/** @type {string} */ url) => !!config.get().officeUrl && sameOrigin(url, config.get().officeUrl);
 
@@ -118,7 +118,7 @@ function createWindows(ctx) {
   function createMain() {
     if (main && !main.isDestroyed()) { showMain(); return main; }
     const cfg = config.get();
-    if (!cfg.serverUrl) { openSettings({ first: true }); return null; }
+    if (!ctx.localEngine && !config.hasActivation()) { openSettings({ first: true }); return null; }
     const w = cfg.window;
     main = new BrowserWindow({
       width: w.width, height: w.height, ...visibleBounds(w), minWidth: 800, minHeight: 500, show: false,
@@ -128,7 +128,7 @@ function createWindows(ctx) {
     if (w.maximized && !cfg.fullscreen && !cfg.kiosk) main.maximize();
     const win = main;
     showWhenReady(win);
-    guard(win, isTrusted, true);
+    guard(win, isTrusted, false);
     hotkeys(win);
     win.on('resize', saveBounds); win.on('move', saveBounds);
     win.on('maximize', () => config.update({ window: { ...config.get().window, maximized: true } }));
@@ -144,7 +144,7 @@ function createWindows(ctx) {
     win.webContents.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
       if (!isMainFrame || code === -3 || String(url).startsWith('file:')) return;   // -3: переход отменён (например, редирект)
       log(`[load] не удалось открыть ${url}: ${desc} (${code})`);
-      void win.loadFile(path.join(paths.frontend, 'offline.html'), { query: { url: config.get().serverUrl, code: String(code), desc: String(desc) } });
+      void win.loadFile(path.join(paths.frontend, 'offline.html'), { query: { url: ctx.localUi?.url || config.get().serverUrl, code: String(code), desc: String(desc) } });
     });
     win.webContents.on('render-process-gone', (_e, d) => { log(`[crash] ${d.reason}`); if (d.reason !== 'clean-exit') setTimeout(() => { if (!win.isDestroyed()) win.webContents.reload(); }, 1500); });
     loadServer();
@@ -153,9 +153,9 @@ function createWindows(ctx) {
 
   function loadServer() {
     if (!main || main.isDestroyed()) return;
-    const u = config.get().serverUrl;
-    if (!u) { openSettings({ first: true }); return; }
-    main.loadURL(u).catch(() => undefined);      // ошибки обрабатывает did-fail-load
+    const u = ctx.localUi?.url || config.get().serverUrl;
+    if (!ctx.localEngine && !config.hasActivation()) { openSettings({ first: true }); return; }
+    main.loadURL(ctx.localUi?.url || u).catch(() => undefined);      // ошибки обрабатывает did-fail-load
   }
 
   function showMain() {
@@ -175,6 +175,7 @@ function createWindows(ctx) {
 
   /** @param {{first?: boolean, tab?: string, hint?: string}} opts */
   function openSettings(opts = {}) {
+    if (!ctx.localEngine && !config.hasActivation()) opts = { first: true };
     /** @type {Record<string,string>} */
     const query = {};
     if (opts.first) query.first = '1';
@@ -183,7 +184,7 @@ function createWindows(ctx) {
     if (settings && !settings.isDestroyed()) {
       if (settings.isMinimized()) settings.restore();
       settings.show(); settings.focus();
-      if (opts.tab || opts.hint) void settings.loadURL(fileUrl('settings.html', query));
+      if (opts.first || opts.tab || opts.hint) void settings.loadURL(fileUrl(opts.first ? 'activation.html' : 'settings.html', query));
       return settings;
     }
     const parent = main && !main.isDestroyed() && main.isVisible() && !opts.first ? main : undefined;
@@ -200,9 +201,9 @@ function createWindows(ctx) {
     win.on('closed', () => {
       ctx.unlocked.delete(wcId); settings = null;
       // закрыли мастер первого запуска, не указав адрес — приложению нечего показывать
-      if (!config.get().serverUrl && !ctx.quitting) app.quit();
+      if (!ctx.localEngine && !config.hasActivation() && !ctx.quitting) app.quit();
     });
-    void win.loadURL(fileUrl('settings.html', query));
+    void win.loadURL(fileUrl(opts.first ? 'activation.html' : 'settings.html', query));
     return win;
   }
 

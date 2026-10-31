@@ -11,15 +11,17 @@ import {
   createProductoSchema, updateProductoSchema, categoriaSchema, createInsumoSchema, updateInsumoSchema, updateRestauranteSchema,
 } from '../schemas';
 import { login, refresh, logout } from '../controllers/auth.controller';
+import { activateDesktop, verifyDesktop, activationStatus, rotateActivationCode, revokeDesktop } from '../controllers/desktop.controller';
+import { getBillingStatus } from '../controllers/billing.controller';
 import { getMesas, createMesa, updateMesa, updateEstadoMesa, deleteMesa } from '../controllers/mesas.controller';
-import { getPedidos, getPedidosActivos, getPedidoById, createPedido, updateEstadoPedido, registrarPago, addItemsToPedido } from '../controllers/pedidos.controller';
+import { getPedidos, getPedidosActivos, getPedidoById, createPedido, updateEstadoPedido, registrarPago, addItemsToPedido, getActiveWaiters } from '../controllers/pedidos.controller';
 import { getProductos, createProducto, updateProducto, deleteProducto, getCategorias, createCategoria, updateCategoria, deleteCategoria, uploadImagen, upload } from '../controllers/menu.controller';
 import { getInventario, getAlertas, createInsumo, updateInsumo, deleteInsumo } from '../controllers/inventario.controller';
-import { getVentas, getTopProductos, getProductividad } from '../controllers/reportes.controller';
+import { getVentas, getTopProductos, getProductividad, getCashReport, getWaiterEarnings } from '../controllers/reportes.controller';
 import { getCompras, getCompra, createCompra, recibirCompra, cancelarCompra } from '../controllers/compras.controller';
 import { getProveedores, createProveedor, updateProveedor, getMovimientos, ajustarInsumo, aplicarRevision } from '../controllers/almacen.controller';
-import { getRecetas, getReceta, putReceta, getConsumo } from '../controllers/recetas.controller';
-import { getImpresoras, createImpresora, updateImpresora, deleteImpresora, pruebaImpresora, agentePrinters, imprimirDocumento, getTrabajos, getDisponibles, descubrirImpresoras, comprobarImpresora, getEstado, getBytes, imprimirIp } from '../controllers/impresion.controller';
+import { getRecetas, getReceta, getRecetaStock, putReceta, getConsumo } from '../controllers/recetas.controller';
+import { getImpresoras, createImpresora, updateImpresora, deleteImpresora, pruebaImpresora, agentePrinters, imprimirDocumento, getTrabajos, getDisponibles, descubrirImpresoras, comprobarImpresora, getEstado, getBytes, getEstaciones, imprimirIp } from '../controllers/impresion.controller';
 import { getEnLinea, getAuditoria } from '../controllers/monitor.controller';
 import { notifyOnWrite, eventsHandler } from '../middleware/realtime.middleware';
 import { getUsuarios, createUsuario, updateUsuario, deleteUsuario, getRestaurante, updateRestaurante, getDashboardStats, getPerfil, updatePerfil, changePassword } from '../controllers/usuarios.controller';
@@ -30,10 +32,16 @@ export const router = Router();
 router.post('/auth/login',   validateBody(loginSchema), asyncHandler(login));
 router.post('/auth/refresh', asyncHandler(refresh));
 router.post('/auth/logout',  asyncHandler(logout));
+router.post('/desktop/activate', asyncHandler(activateDesktop));
+router.post('/desktop/verify', asyncHandler(verifyDesktop));
 
 router.use(authMiddleware);
 router.get('/events', eventsHandler);
 router.use(notifyOnWrite);
+router.get('/billing/status', ownerOnly, asyncHandler(getBillingStatus));
+router.get('/desktop/activation', roleMiddleware('ADMIN'), asyncHandler(activationStatus));
+router.post('/desktop/activation', roleMiddleware('ADMIN'), asyncHandler(rotateActivationCode));
+router.delete('/desktop/devices/:id', roleMiddleware('ADMIN'), asyncHandler(revokeDesktop));
 
 // ─── Dashboard ─────────────────────────────────────
 router.get('/dashboard', asyncHandler(getDashboardStats));
@@ -42,22 +50,24 @@ router.get('/dashboard', asyncHandler(getDashboardStats));
 router.get('/mesas',              asyncHandler(getMesas));
 router.post('/mesas',             roleMiddleware('ADMIN'), validateBody(createMesaSchema), asyncHandler(createMesa));
 router.patch('/mesas/:id',        roleMiddleware('ADMIN'), validateBody(updateMesaSchema), asyncHandler(updateMesa));
-router.patch('/mesas/:id/estado', validateBody(updateEstadoMesaSchema), asyncHandler(updateEstadoMesa));
+router.patch('/mesas/:id/estado', roleMiddleware('ADMIN'), validateBody(updateEstadoMesaSchema), asyncHandler(updateEstadoMesa));
 router.delete('/mesas/:id',       roleMiddleware('ADMIN'), asyncHandler(deleteMesa));
 
 // ─── Pedidos ──────────────────────────────────────
 router.get('/pedidos',                asyncHandler(getPedidos));
 router.get('/pedidos/activos',        asyncHandler(getPedidosActivos));
+router.get('/pedidos/meseros',        roleMiddleware('ADMIN', 'CAJERO'), asyncHandler(getActiveWaiters));
 router.get('/pedidos/:id',            asyncHandler(getPedidoById));
 router.post('/pedidos',               roleMiddleware('ADMIN', 'MESERO', 'CAJERO'), validateBody(createPedidoSchema), asyncHandler(createPedido));
 router.patch('/pedidos/:id/estado',   validateBody(updateEstadoSchema), asyncHandler(updateEstadoPedido));
-router.patch('/pedidos/:id/pago',     roleMiddleware('ADMIN', 'CAJERO', 'MESERO'), validateBody(registrarPagoSchema), asyncHandler(registrarPago));
+router.patch('/pedidos/:id/pago',     roleMiddleware('ADMIN', 'CAJERO'), validateBody(registrarPagoSchema), asyncHandler(registrarPago));
 router.post('/pedidos/:id/items',     roleMiddleware('ADMIN', 'MESERO', 'CAJERO'), validateBody(addItemsSchema), asyncHandler(addItemsToPedido));
 
 // ─── Тех-карты (технологические карты блюд) ───────
-router.get('/recetas',                 roleMiddleware('ADMIN'), asyncHandler(getRecetas));
+router.get('/recetas',                 roleMiddleware('ADMIN', 'CAJERO'), asyncHandler(getRecetas));
 router.get('/recetas/consumo',         roleMiddleware('ADMIN'), asyncHandler(getConsumo));
 router.get('/recetas/:productoId',     roleMiddleware('ADMIN'), asyncHandler(getReceta));
+router.get('/recetas/:productoId/stock', roleMiddleware('ADMIN', 'CAJERO'), asyncHandler(getRecetaStock));
 router.put('/recetas/:productoId',     roleMiddleware('ADMIN'), validateBody(recetaSchema), asyncHandler(putReceta));
 
 // ─── Menú ─────────────────────────────────────────
@@ -99,6 +109,7 @@ router.get('/auditoria',  ownerOnly, asyncHandler(getAuditoria));
 router.post('/imprimir',              roleMiddleware('ADMIN', 'CAJERO', 'MESERO'), validateBody(imprimirSchema), asyncHandler(imprimirDocumento));
 router.post('/imprimir/ip',           roleMiddleware('ADMIN', 'CAJERO', 'MESERO'), asyncHandler(imprimirIp));
 router.post('/imprimir/bytes',        roleMiddleware('ADMIN', 'CAJERO', 'MESERO'), asyncHandler(getBytes));
+router.post('/imprimir/estaciones',    roleMiddleware('ADMIN', 'CAJERO', 'MESERO'), asyncHandler(getEstaciones));
 router.get('/imprimir/estado',       roleMiddleware('ADMIN', 'CAJERO', 'MESERO'), asyncHandler(getEstado));
 router.get('/imprimir/impresoras',   roleMiddleware('ADMIN', 'CAJERO', 'MESERO'), asyncHandler(getDisponibles));
 router.get('/impresoras',             roleMiddleware('ADMIN'), asyncHandler(getImpresoras));
@@ -113,8 +124,10 @@ router.post('/impresoras/:id/prueba', roleMiddleware('ADMIN'), asyncHandler(prue
 
 // ─── Reportes ─────────────────────────────────────
 router.get('/reportes/ventas',    roleMiddleware('ADMIN', 'CAJERO'), asyncHandler(getVentas));
+router.get('/reportes/caja',      roleMiddleware('ADMIN', 'CAJERO'), asyncHandler(getCashReport));
 router.get('/reportes/productos', roleMiddleware('ADMIN', 'CAJERO'), asyncHandler(getTopProductos));
 router.get('/reportes/cocineros', roleMiddleware('ADMIN'),           asyncHandler(getProductividad));
+router.get('/reportes/meseros', roleMiddleware('ADMIN'),             asyncHandler(getWaiterEarnings));
 
 // ─── Perfil ────────────────────────────────────────
 router.get('/perfil',          asyncHandler(getPerfil));

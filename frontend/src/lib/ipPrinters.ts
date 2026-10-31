@@ -14,7 +14,7 @@ const KEY = 'innova365-ip-printers';
 const SEL = 'innova365-ip-selected';
 const PREF = 'innova365-print-pref';
 
-export type Pref = 'usb' | 'local' | 'ip' | 'server';
+export type Pref = 'usb' | 'local' | 'ip' | 'server' | 'system';
 
 const read = <T>(k: string, d: T): T => { try { const v = localStorage.getItem(k); return v ? (JSON.parse(v) as T) : d; } catch { return d; } };
 const write = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ignore */ } window.dispatchEvent(new Event('innova:ipprinters')); };
@@ -57,16 +57,16 @@ export async function discoverIp(): Promise<string[]> {
 }
 
 /** Печатает документ на IP-принтере. Бросает Error с понятным кодом: 'agent+server' если не сработали оба пути. */
-export async function printIp(doc: { tipo: 'recibo' | 'cuenta' | 'cocina' | 'cierre' | 'prueba'; pedidoId?: string }, p: IpPrinter): Promise<{ printer: string; via: 'agent' | 'server' }> {
+export async function printIp(doc: { tipo: 'recibo' | 'cuenta' | 'cocina' | 'cierre' | 'prueba'; pedidoId?: string; periodo?: 'hoy' | 'semana' | 'mes' }, p: IpPrinter, ancho?: number): Promise<{ printer: string; via: 'agent' | 'server' }> {
   const cfg = getLocalCfg();
   const a = await probeAgent(cfg.url);
   let agentErr = '';
   if (cfg.enabled && a.online && a.allowed !== false) {
-    try { const r = await printLocal(doc, { ...cfg, printer: `${p.ip}:${p.port}` }); return { printer: r.printer, via: 'agent' }; }
+    try { const r = await printLocal(doc, { ...cfg, ancho: ancho ?? cfg.ancho, printer: `${p.ip}:${p.port}` }); return { printer: r.printer, via: 'agent' }; }
     catch (e) { agentErr = (e as Error).message; }
   }
   try {
-    const r = await api.post<{ printer: string }>('/imprimir/ip', { ...doc, host: p.ip, puerto: p.port, ancho: cfg.ancho, codepage: cfg.codepage, lang: printLang }, { timeout: 12000 });
+    const r = await api.post<{ printer: string }>('/imprimir/ip', { ...doc, host: p.ip, puerto: p.port, ancho: ancho ?? cfg.ancho, codepage: cfg.codepage, lang: printLang }, { timeout: 12000 });
     return { printer: r.data.printer, via: 'server' };
   } catch (e) {
     const err = new Error(agentErr || 'server');

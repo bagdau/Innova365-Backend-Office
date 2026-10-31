@@ -47,21 +47,66 @@ router.get('/inv/movements', need('inv.view'), ah(async (req, res) => {
   const rid = req.me!.rid;
   const s = await getSettings(rid);
   const { from, to } = periodOf(req, s.timezone);
-  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
   const offset = Math.max(0, Number(req.query.offset) || 0);
   const tipos = typeof req.query.tipo === 'string' && req.query.tipo ? req.query.tipo.split(',').filter((t) => ['INICIAL', 'COMPRA', 'AJUSTE', 'MERMA', 'REVISION', 'CONSUMO', 'DEVOLUCION'].includes(t)) : null;
   const insumo = typeof req.query.insumoId === 'string' && req.query.insumoId ? req.query.insumoId : null;
   const cost = canCost(req.me!);
+  // Сначала выбираем операции, затем их строки: страницы не разрывают один заказ или документ.
   const rows = await q(
-    `select m.id, m.tipo::text as tipo, m.cantidad, m.saldo, m."costoUnitario" as costo, m.motivo, m."creadoEn" as at, i.id as insumo_id, i.nombre, i.unidad,
-            coalesce(u.nombre, st.nombre) as who, count(*) over() as total
-       from public."MovimientoInventario" m join public."Insumo" i on i.id = m."insumoId"
-       left join public."Usuario" u on u.id = m."usuarioId" left join office.staff st on st.id = m."usuarioId"
-      where m."restauranteId" = $1 and m."creadoEn" >= (($2::date)::timestamp at time zone $5) at time zone 'UTC' and m."creadoEn" < (($3::date + 1)::timestamp at time zone $5) at time zone 'UTC'
-        and ($4::text[] is null or m.tipo::text = any($4)) and ($6::text is null or m."insumoId" = $6)
-      order by m."creadoEn" desc limit $7 offset $8`, [rid, from, to, tipos, s.timezone, insumo, limit, offset]);
-  res.json({ from, to, total: rows[0] ? Number(rows[0].total) : 0, canCost: cost,
-    rows: rows.map((r) => ({ id: r.id, tipo: r.tipo, cantidad: n(r.cantidad), saldo: n(r.saldo), costo: cost && r.costo !== null ? n(r.costo) : null, motivo: r.motivo, at: r.at, insumoId: r.insumo_id, nombre: r.nombre, unidad: r.unidad, who: r.who })) });
+    `with movement as materialized (
+       select m.id, m.tipo::text as tipo, m.cantidad, m.saldo, m."costoUnitario" as costo, m.motivo,
+              m."creadoEn", m."insumoId", i.nombre, i.unidad, coalesce(u.nombre, st.nombre) as who,
+              p.numero as pedido_numero, c.numero as compra_numero,
+              case
+                when m."pedidoId" is not null then m.tipo::text || ':pedido:' || m."pedidoId"
+                when m."recepcionId" is not null then 'recepcion:' || m."recepcionId"
+                when m."compraId" is not null then 'compra:' || m."compraId"
+                when m.tipo::text in ('CONSUMO', 'DEVOLUCION') and m.motivo ~ '^№[0-9]+$' then m.tipo::text || ':legacy-pedido:' || m.motivo
+                when m.tipo::text = 'MERMA' and m.motivo like 'Списание №% (Office):%' then 'office-writeoff:' || split_part(split_part(m.motivo, ' (Office)', 1), '№', 2)
+                when m.tipo::text = 'REVISION' and m.motivo like 'Инвентаризация №% (Office):%' then 'office-stocktake:' || split_part(split_part(m.motivo, ' (Office)', 1), '№', 2)
+                else 'movement:' || m.id
+              end as group_key
+         from public."MovimientoInventario" m
+         join public."Insumo" i on i.id = m."insumoId"
+         left join public."Usuario" u on u.id = m."usuarioId"
+         left join office.staff st on st.id = m."usuarioId"
+         left join public."Pedido" p on p.id = m."pedidoId" and p."restauranteId" = $1
+         left join public."Compra" c on c.id = m."compraId" and c."restauranteId" = $1
+        where m."restauranteId" = $1
+          and m."creadoEn" >= (($2::date)::timestamp at time zone $5) at time zone 'UTC'
+          and m."creadoEn" < (($3::date + 1)::timestamp at time zone $5) at time zone 'UTC'
+          and ($4::text[] is null or m.tipo::text = any($4))
+          and ($6::text is null or m."insumoId" = $6)
+     ), grouped as (
+       select group_key, max("creadoEn") as at, count(*)::int as line_count,
+              bool_and(costo is not null) as cost_complete,
+              sum(abs(cantidad) * costo) as amount
+         from movement group by group_key
+     ), page as (
+       select *, count(*) over() as total from grouped
+        order by at desc, group_key desc limit $7 offset $8
+     )
+     select page.group_key, (page.at at time zone 'UTC') as group_at, page.line_count, page.cost_complete, page.amount, page.total,
+            m.id, m.tipo, m.cantidad, m.saldo, m.costo, m.motivo,
+            (m."creadoEn" at time zone 'UTC') as line_at, m."insumoId" as insumo_id,
+            m.nombre, m.unidad, m.who, m.pedido_numero, m.compra_numero
+       from page join movement m on m.group_key = page.group_key
+      order by page.at desc, page.group_key desc, m."creadoEn" desc, m.id desc`,
+    [rid, from, to, tipos, s.timezone, insumo, limit, offset]);
+  const groups = new Map<string, { key: string; at: string; tipo: string; motivo: string | null; who: string | null; pedidoNumero: number | null; compraNumero: number | null; lineCount: number; amount: number | null; lines: unknown[] }>();
+  for (const r of rows) {
+    let group = groups.get(r.group_key);
+    if (!group) {
+      group = { key: r.group_key, at: r.group_at.toISOString(), tipo: r.tipo, motivo: r.motivo, who: r.who,
+        pedidoNumero: r.pedido_numero, compraNumero: r.compra_numero, lineCount: Number(r.line_count),
+        amount: cost && r.cost_complete ? round2(n(r.amount)) : null, lines: [] };
+      groups.set(r.group_key, group);
+    }
+    group.lines.push({ id: r.id, nombre: r.nombre, unidad: r.unidad, cantidad: n(r.cantidad), saldo: n(r.saldo),
+      costo: cost && r.costo !== null ? n(r.costo) : null, at: r.line_at.toISOString(), motivo: r.motivo });
+  }
+  res.json({ from, to, timezone: s.timezone, total: rows[0] ? Number(rows[0].total) : 0, canCost: cost, groups: [...groups.values()] });
 }));
 
 /* ───────── Инвентаризация ───────── */

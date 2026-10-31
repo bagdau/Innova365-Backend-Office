@@ -21,10 +21,16 @@ export interface Impresora {
   activa: boolean;
 }
 
+/** Принтер станции (кухня/бар/самса): печатает только тикеты позиций, чеки на него не отправляются. */
+export const isStationPrinter = (p: { usos: UsoImpresora[] }): boolean =>
+  p.usos.includes('COCINA') && !p.usos.includes('RECIBO') && !p.usos.includes('CUENTA');
+
 export type ImpresoraInput = Partial<Omit<Impresora, 'id' | 'tieneToken'>> & { token?: string | null };
 
 export interface ResultadoImpresion { impresoraId: string; impresora: string; ok: boolean; ms: number; error?: string; detalle?: string }
 export interface RespuestaImpresion { resultados: ResultadoImpresion[]; fallback: boolean; ancho: number }
+
+export interface EstacionDoc { impresoraId: string; impresora: string; host: string | null; puerto: number; ancho: number; items: number; data: string }
 
 export interface EstadoImpresora { id: string; nombre: string; tipo: TipoImpresora; ancho: number; usos: UsoImpresora[]; auto: boolean; online: boolean; ms: number; papel: 'ok' | 'poco' | 'sin' | null; detalle: string | null }
 export interface TrabajoImpresion { id: string; tipo: string; referencia: string | null; ok: boolean; error: string | null; ms: number | null; creadoEn: string; impresora: string | null }
@@ -33,8 +39,9 @@ export interface HostEncontrado { ip: string; puerto: number; estado: EstadoPrin
 export interface PrinterWindows { name: string; port: string; driver: string; isDefault: boolean; offline: boolean }
 
 export const impresionService = {
-  imprimir: (d: { tipo: 'recibo' | 'cuenta' | 'cocina' | 'cierre'; pedidoId?: string; impresoraId?: string; lang: 'ru' | 'en' }) =>
+  imprimir: (d: { tipo: 'recibo' | 'cuenta' | 'cocina' | 'cierre'; pedidoId?: string; impresoraId?: string; periodo?: 'hoy' | 'semana' | 'mes'; lang: 'ru' | 'en' }) =>
     api.post<RespuestaImpresion>('/imprimir', d, { timeout: 15000 }).then((r) => r.data),
+  estaciones: (pedidoId: string, lang: 'ru' | 'en') => api.post<{ estaciones: EstacionDoc[] }>('/imprimir/estaciones', { pedidoId, lang }, { timeout: 10000 }).then((r) => r.data.estaciones),
   estado: () => api.get<EstadoImpresora[]>('/imprimir/estado', { timeout: 8000 }).then((r) => r.data),
   list: () => api.get<Impresora[]>('/impresoras').then((r) => r.data),
   disponibles: () => api.get<{ id: string; nombre: string; tipo: TipoImpresora; ancho: number; usos: UsoImpresora[] }[]>('/imprimir/impresoras').then((r) => r.data),

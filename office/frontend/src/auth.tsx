@@ -1,6 +1,6 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
 import { get, post, setUnauthorizedHandler } from './api';
-import { setCurrency } from './format';
+import { setCurrency, setTimezone } from './format';
 import { startLive } from './live';
 
 export type Perm = 'dashboard' | 'fc.view' | 'fc.edit' | 'fc.settle' | 'tc.view' | 'tc.edit' | 'tc.approve' | 'ing.edit' | 'ing.cost' | 'acc.view' | 'acc.write'
@@ -19,7 +19,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const apply = (m: Me | null) => { if (m) setCurrency(m.settings.currency); setMe(m); };
+  const apply = (m: Me | null) => { if (m) { setCurrency(m.settings.currency); setTimezone(m.settings.timezone); } setMe(m); };
   const reload = useCallback(async () => { try { apply(await get<Me>('/me')); } catch { apply(null); } }, []);
 
   useEffect(() => {

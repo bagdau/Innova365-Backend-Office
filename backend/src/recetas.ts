@@ -9,6 +9,11 @@ type Db = Prisma.TransactionClient | typeof prisma;
 
 export interface RecetaMap { [productoId: string]: { items: { insumoId: string | null; componenteId: string | null; cantidad: number }[] } }
 
+/** Проценты потерь применяются последовательно; списание склада всегда берёт брутто. */
+export function netAfterProcessing(gross: number, cold: number | null | undefined, hot: number | null | undefined): number {
+  return Number((gross * (1 - (cold ?? 0) / 100) * (1 - (hot ?? 0) / 100)).toFixed(6));
+}
+
 export async function cargarRecetas(db: Db, restauranteId: string): Promise<RecetaMap> {
   const rows = await db.receta.findMany({ where: { restauranteId }, include: { items: true } });
   const map: RecetaMap = {};

@@ -1,3 +1,5 @@
+import { CategorySelect } from '../../components/shared/CategorySelect';
+import { StationToggles } from '../../components/shared/StationToggles';
 import { liveInterval } from '../../lib/live';
 import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -10,12 +12,12 @@ import { mesasService } from '../../services/mesas.service';
 import { pedidosService } from '../../services/pedidos.service';
 import { menuService } from '../../services/menu.service';
 import type { Mesa, Producto, Categoria } from '../../types';
-import { cn, formatCurrency } from '../../utils/cn';
+import { cn, formatCurrency, rolLabel } from '../../utils/cn';
 import toast from 'react-hot-toast';
 import { METODOS_PAGO } from '../../lib/payments';
 import { fmtMoney } from '../../lib/currency';
 import { PayQr } from '../../components/shared/PayQr';
-import { t } from '../../i18n';
+import { t, apiError } from '../../i18n';
 import { printOrder, printAfterPayment } from '../../lib/printClient';
 import { FileText } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
@@ -24,6 +26,7 @@ import { useNow, minutesSince } from '../../hooks/useNow';
 import { SearchInput } from '../../components/shared/SearchInput';
 import { Highlight } from '../../components/shared/Highlight';
 import { useProductSearch } from '../../search/useSearch';
+import { addedServiceCharge } from '../../lib/serviceCharge';
 
 function getTimerColor(t: number | null | undefined): React.CSSProperties {
   if (t == null) return {};
@@ -91,6 +94,12 @@ export default function MesasPage() {
     onError: () => toast.error(t('Error al actualizar mesa')),
   });
 
+  const liberarSinPedido = useMutation({
+    mutationFn: (mesaId: string) => mesasService.updateEstado(mesaId, 'LIBRE'),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['mesas'] }); toast.success(t('Mesa liberada')); },
+    onError: () => toast.error(t('Error al actualizar mesa')),
+  });
+
   const entregar = useMutation({
     mutationFn: (pedidoId: string) => pedidosService.updateEstado(pedidoId, 'ENTREGADO'),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['mesas'] }); toast.success(t('Pedido entregado al cliente')); },
@@ -99,7 +108,7 @@ export default function MesasPage() {
 
   const registrarPago = useMutation({
     mutationFn: ({ pedidoId, metodo }: { pedidoId: string; metodo: string }) =>
-      pedidosService.registrarPago(pedidoId, metodo),
+      pedidosService.registrarPago(pedidoId, metodo, Number(pagoMesa?.pedidoActivo?.total ?? 0)),
     onSuccess: (resp, vars) => {
       const ped = pagoMesa?.pedidoActivo;
       qc.invalidateQueries({ queryKey: ['mesas'] });
@@ -108,7 +117,10 @@ export default function MesasPage() {
       toast.success(t('¡Pago registrado! Mesa liberada'));
       if (ped) void printAfterPayment(ped, vars.metodo, resp);   // чек сразу после оплаты
     },
-    onError: () => toast.error(t('Error al registrar pago')),
+    onError: (error: any) => {
+      if (error?.response?.status === 409) { setPagoMesa(null); void qc.invalidateQueries({ queryKey: ['mesas'] }); }
+      toast.error(apiError(error, t('Error al registrar pago')));
+    },
   });
 
   const addItems = useMutation({
@@ -124,7 +136,11 @@ export default function MesasPage() {
   });
 
   const openEdit = (mesa: Mesa) => { setEditMesa(mesa); setEditNumero(String(mesa.numero)); setEditCapacidad(String(mesa.capacidad)); };
-  const openPago = (mesa: Mesa) => { setPagoMesa(mesa); setMetodoPago('Efectivo'); };
+  const openPago = (mesa: Mesa) => {
+    if (!can(rol, 'caja')) return;
+    setPagoMesa(mesa);
+    setMetodoPago('Efectivo');
+  };
   const openAdd  = (mesa: Mesa) => { setAddMesa(mesa); setCarrito({}); setCatFiltro('todas'); };
   const closeAddModal = () => { setAddMesa(null); setCarrito({}); setSearch(''); };
 
@@ -157,6 +173,7 @@ export default function MesasPage() {
 
   return (
     <div className="space-y-5">
+      <StationToggles />
       {/* Stats + Actions */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-5 text-sm flex-wrap">
@@ -209,9 +226,15 @@ export default function MesasPage() {
 
             {mesa.estado === 'OCUPADA' && (
               <div className="space-y-1">
-                {mesa.mesero && (
+                {mesa.pedidoActivo?.mesero?.nombre && (
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <User size={12} /> {mesa.mesero}
+                    <User size={12} /> {t('Pedido registrado por')}: {mesa.pedidoActivo.mesero.nombre}
+                    {mesa.pedidoActivo.mesero.rol ? ` (${rolLabel(mesa.pedidoActivo.mesero.rol)})` : ''}
+                  </div>
+                )}
+                {mesa.pedidoActivo?.cocineroNombre && (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    {t('Готовность отметил')}: {mesa.pedidoActivo.cocineroNombre}
                   </div>
                 )}
                 {mesa.timerRestante != null && (
@@ -228,13 +251,23 @@ export default function MesasPage() {
                 <Button size="sm" className="w-full" onClick={() => navigate(`/pedidos/nuevo?mesaId=${mesa.id}`)}>
                   {t('Asignar Pedido')}
                 </Button>
+              ) : !mesa.pedidoActivo ? (
+                <>
+                  <div className="text-xs text-center text-muted-foreground">{t('Sin pedido activo')}</div>
+                  {isAdmin && <Button size="sm" variant="secondary" className="w-full" loading={liberarSinPedido.isPending}
+                    onClick={() => liberarSinPedido.mutate(mesa.id)}>{t('Liberar mesa')}</Button>}
+                </>
               ) : mesa.pedidoActivo?.estado === 'LISTO' ? (
                 <>
                   <div className="text-xs text-center font-semibold text-success py-0.5">{t('✓ Listo para servir')}</div>
-                  <Button size="sm" className="w-full" loading={entregar.isPending}
-                    onClick={() => entregar.mutate(mesa.pedidoActivo!.id)}>
-                    {t('Entregar al cliente')}
-                  </Button>
+                  {can(rol, 'mesero') ? (
+                    <Button size="sm" className="w-full" loading={entregar.isPending}
+                      onClick={() => entregar.mutate(mesa.pedidoActivo!.id)}>
+                      {t('Entregar al cliente')}
+                    </Button>
+                  ) : (
+                    <div className="text-xs text-center text-muted-foreground">{t('Esperando entrega en sala')}</div>
+                  )}
                   <button onClick={() => openAdd(mesa)}
                     className="w-full text-xs text-muted-foreground hover:text-foreground flex items-center justify-center gap-1 py-1 hover:bg-muted rounded-lg transition-colors">
                     <Plus size={10} /> {t('Añadir productos')}
@@ -247,10 +280,12 @@ export default function MesasPage() {
                     className="w-full text-xs text-muted-foreground hover:text-foreground flex items-center justify-center gap-1 py-1 hover:bg-muted rounded-lg transition-colors">
                     <FileText size={11} /> {t('Cuenta previa')}
                   </button>
-                  <Button size="sm" variant="secondary" className="w-full border-success/50 text-success hover:bg-success/10"
-                    onClick={() => openPago(mesa)}>
-                    <CreditCard size={13} /> {t('Cliente pagó')}
-                  </Button>
+                  {can(rol, 'caja') && (
+                    <Button size="sm" variant="secondary" className="w-full border-success/50 text-success hover:bg-success/10"
+                      onClick={() => openPago(mesa)}>
+                      <CreditCard size={13} /> {t('Cliente pagó')}
+                    </Button>
+                  )}
                 </>
               ) : (
                 <>
@@ -316,11 +351,12 @@ export default function MesasPage() {
       </Modal>
 
       {/* ── Modal Registrar Pago ── */}
-      <Modal open={!!pagoMesa} onClose={() => setPagoMesa(null)} title={t('Pago — Mesa {n}', { n: pagoMesa?.numero ?? '' })}>
+      <Modal open={!!pagoMesa && can(rol, 'caja')} onClose={() => setPagoMesa(null)} title={t('Pago — Mesa {n}', { n: pagoMesa?.numero ?? '' })}>
         <div className="space-y-4">
           {pagoMesa?.pedidoActivo && (
             <div className="bg-muted rounded-xl p-3">
               <p className="text-sm text-muted-foreground mb-1">{t('Total a cobrar')}</p>
+              {Number(pagoMesa.pedidoActivo.servicePercent ?? 0) > 0 && <p className="text-sm text-muted-foreground">{t('Обслуживание {n}%', { n: Number(pagoMesa.pedidoActivo.servicePercent) })}: {fmtMoney(Number(pagoMesa.pedidoActivo.serviceAmount ?? 0))}</p>}
               <p className="text-2xl font-bold text-foreground">{fmtMoney(Number(pagoMesa.pedidoActivo.total ?? 0))}</p>
             </div>
           )}
@@ -353,20 +389,7 @@ export default function MesasPage() {
           <SearchInput value={search} onChange={setSearch} autoFocus />
 
           {/* Filtro categoría */}
-          <div className="flex gap-2 flex-wrap">
-            <button onClick={() => setCatFiltro('todas')}
-              className={cn('px-3 py-1 rounded-full text-xs font-medium transition-colors',
-                catFiltro === 'todas' ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:text-foreground')}>
-              {t('Todos')}
-            </button>
-            {categorias.map((c) => (
-              <button key={c.id} onClick={() => setCatFiltro(c.id)}
-                className={cn('px-3 py-1 rounded-full text-xs font-medium transition-colors',
-                  catFiltro === c.id ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:text-foreground')}>
-                {c.nombre}
-              </button>
-            ))}
-          </div>
+          <CategorySelect categorias={categorias} productos={productos} value={catFiltro} onChange={setCatFiltro} allLabel={t('Todos')} />
 
           {/* Lista de productos */}
           <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
@@ -401,9 +424,13 @@ export default function MesasPage() {
 
           {/* Resumen carrito */}
           {itemsCarrito > 0 && (
-            <div className="bg-primary/10 border border-primary/30 rounded-xl p-3 flex items-center justify-between">
-              <span className="text-sm text-foreground">{t('Productos seleccionados: {n}', { n: itemsCarrito })}</span>
-              <span className="font-bold text-primary">{formatCurrency(totalCarrito)}</span>
+            <div className="bg-primary/10 border border-primary/30 rounded-xl p-3 space-y-1">
+              <div className="flex items-center justify-between"><span className="text-sm text-foreground">{t('Productos seleccionados: {n}', { n: itemsCarrito })}</span><span>{formatCurrency(totalCarrito)}</span></div>
+              {addMesa?.pedidoActivo && Number(addMesa.pedidoActivo.servicePercent ?? 0) > 0 && <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <span>{t('Обслуживание {n}%', { n: Number(addMesa.pedidoActivo.servicePercent) })}</span>
+                <span>{formatCurrency(addedServiceCharge(addMesa.pedidoActivo, totalCarrito))}</span>
+              </div>}
+              <div className="flex items-center justify-between font-bold text-primary"><span>{t('Итого добавится')}</span><span>{formatCurrency(totalCarrito + (addMesa?.pedidoActivo ? addedServiceCharge(addMesa.pedidoActivo, totalCarrito) : 0))}</span></div>
             </div>
           )}
 

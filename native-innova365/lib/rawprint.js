@@ -16,6 +16,13 @@ const { classifyAll } = require('./printers');
 
 const ASK_TIMEOUT = 15_000;
 
+/** Win32_Printer.DetectedErrorState → текст для оператора (3 «бумага заканчивается» не считается неисправностью). */
+const ERROR_TEXT = { 4: 'нет бумаги', 3: 'бумага заканчивается', 7: 'открыта крышка', 8: 'замятие бумаги', 9: 'принтер не отвечает', 10: 'нужно обслуживание', 11: 'лоток переполнен' };
+function describeStatus(s) {
+  const text = ERROR_TEXT[s.errorState] || (s.workOffline ? 'принтер отключён (работает автономно)' : s.stuckJobs ? 'задание застряло в очереди Windows' : '');
+  return { ...s, text, problem: !!text && s.errorState !== 3 };
+}
+
 class RawPrinter {
   /** @param {{psDir: string, platform?: string, spawnFn?: Function, execFn?: Function}} o */
   constructor({ psDir, platform = process.platform, spawnFn = spawn, execFn = execFile }) {
@@ -71,6 +78,12 @@ class RawPrinter {
     return classifyAll(out.split('\n').filter(Boolean).map((name) => ({ name, port: '', driver: 'CUPS', isDefault: false, offline: false })));
   }
 
+  /** Состояние очереди Windows: бумага, автономный режим, число и ошибки заданий. На других ОС — null. */
+  async status(printerName) {
+    if (this.platform !== 'win32') return null;
+    return describeStatus(await this._ask({ cmd: 'status', printer: printerName }));
+  }
+
   /** Отправляет буфер на принтер ОС по имени. */
   async print(printerName, data) {
     const file = path.join(os.tmpdir(), `innova365-${crypto.randomBytes(6).toString('hex')}.bin`);
@@ -115,4 +128,4 @@ class RawPrinter {
   }
 }
 
-module.exports = { RawPrinter };
+module.exports = { RawPrinter, describeStatus };

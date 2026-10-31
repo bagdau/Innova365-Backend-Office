@@ -11,20 +11,27 @@ import type { VentasReport, TopProducto } from '../../types';
 import { cn } from '../../utils/cn';
 import { t } from '../../i18n';
 import { currencySymbol } from '../../lib/currency';
-import { printVentasReport } from '../../lib/documents';
 import { Printer } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { printCashReport } from '../../lib/documents';
+import type { CashReportPeriod } from '../../types/cashReport';
+import { useAuthStore } from '../../store/authStore';
+import { isAdminLike } from '../../auth/permissions';
 
-const PERIODOS = [
+const PERIODOS: { key: CashReportPeriod; label: string }[] = [
   { key: 'hoy', label: t('Hoy') },
   { key: 'semana', label: t('Esta semana') },
   { key: 'mes', label: t('Este mes') },
 ];
 
-const TABS = ['Ventas', 'Pedidos', 'Productividad'];
+interface WaiterEarning { id: string; nombre: string; pedidos: number; ventas: number; accrued: number }
 
 export default function ReportesPage() {
+  const isAdmin = isAdminLike(useAuthStore((s) => s.user?.rol));
+  const tabs = isAdmin ? ['Ventas', 'Официанты', 'Productividad'] : ['Ventas'];
   const [tab, setTab] = useState('Ventas');
-  const [periodo, setPeriodo] = useState('semana');
+  const [periodo, setPeriodo] = useState<CashReportPeriod>('semana');
+  const [printing, setPrinting] = useState(false);
 
   const { data: ventas } = useQuery<VentasReport>({
     queryKey: ['ventas', periodo],
@@ -32,13 +39,19 @@ export default function ReportesPage() {
   });
 
   const { data: topProductos = [] } = useQuery<TopProducto[]>({
-    queryKey: ['topProductos'],
-    queryFn: reportesService.getTopProductos,
+    queryKey: ['topProductos', periodo],
+    queryFn: () => reportesService.getTopProductos(periodo),
   });
 
   const { data: productividad = [] } = useQuery<any[]>({
-    queryKey: ['productividad'],
-    queryFn: reportesService.getProductividad,
+    queryKey: ['productividad', periodo],
+    queryFn: () => reportesService.getProductividad(periodo),
+    enabled: isAdmin,
+  });
+  const { data: waiterEarnings = [] } = useQuery<WaiterEarning[]>({
+    queryKey: ['waiterEarnings', periodo],
+    queryFn: () => reportesService.getWaiterEarnings(periodo),
+    enabled: isAdmin && tab === 'Официанты',
   });
 
   const { data: restInfo } = useQuery({ queryKey: ['restaurante'], queryFn: reportesService.getRestaurante, staleTime: 300_000 });
@@ -49,14 +62,15 @@ export default function ReportesPage() {
     return rest > 0 ? [...head, { name: t('Otros'), value: rest }] : head;
   })();
 
-  const printReport = () => printVentasReport({
-    periodo: PERIODOS.find((p) => p.key === periodo)?.label ?? periodo,
-    totalVentas: ventas?.totalVentas ?? 0,
-    totalPedidos: ventas?.totalPedidos ?? 0,
-    chartData: ventas?.chartData ?? [],
-    top: (topProductos ?? []) as any,
-    productividad: (productividad ?? []) as any,
-  }, restInfo);
+  const printReport = async () => {
+    if (printing) return;
+    setPrinting(true);
+    try {
+      const report = await reportesService.getCashReport(periodo);
+      await printCashReport(report, restInfo);
+    } catch { toast.error(t('No se pudo imprimir')); }
+    finally { setPrinting(false); }
+  };
 
   const exportCSV = () => {
     const rows = [
@@ -74,7 +88,7 @@ export default function ReportesPage() {
     <div className="space-y-5">
       {/* Tabs */}
       <div className="flex gap-1 border-b border-border">
-        {TABS.map((tabName) => (
+        {tabs.map((tabName) => (
           <button key={tabName} onClick={() => setTab(tabName)}
             className={cn('px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px', tab === tabName ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground')}>
             {t(tabName)}
@@ -95,7 +109,7 @@ export default function ReportesPage() {
               ))}
             </div>
             <div className="flex gap-2">
-            <button onClick={printReport} className="flex items-center gap-2 px-4 py-2 bg-muted border border-border rounded-m text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <button onClick={() => void printReport()} disabled={printing} className="flex items-center gap-2 px-4 py-2 bg-muted border border-border rounded-m text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50">
               <Printer size={14} /> <span className="hidden sm:inline">{t('Imprimir')}</span>
             </button>
             <button onClick={exportCSV} className="flex items-center gap-2 px-4 py-2 bg-muted border border-border rounded-m text-sm text-muted-foreground hover:text-foreground transition-colors">
@@ -114,7 +128,7 @@ export default function ReportesPage() {
           {/* Chart */}
           <div className="bg-card border border-border rounded-l p-5">
             <h3 className="text-sm font-semibold text-foreground mb-4">{t('Ventas por día')}</h3>
-            {ventas?.chartData.length === 0 ? (
+            {ventas && ventas.totalPedidos === 0 ? (
               <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">{t('Sin datos para el período')}</div>
             ) : (
               <SalesLineChart data={ventas?.chartData ?? []} />
@@ -135,7 +149,7 @@ export default function ReportesPage() {
               <h3 className="text-sm font-semibold text-foreground">{t('Top Productos')}</h3>
             </div>
             <TableWrapper headers={[t('Producto'), t('Cantidad vendida'), t('Ingresos'), t('% del total')]} isEmpty={topProductos.length === 0} emptyMessage={t('Sin datos')}>
-              {topProductos.map((p, i) => (
+              {topProductos.slice(0, 10).map((p, i) => (
                 <Tr key={i}>
                   <Td className="font-medium">{p.nombre}</Td>
                   <Td>{p.cantidad}</Td>
@@ -158,9 +172,9 @@ export default function ReportesPage() {
       {tab === 'Productividad' && (
         <div className="bg-card border border-border rounded-l">
           <div className="px-5 py-4 border-b border-border">
-            <h3 className="text-sm font-semibold text-foreground">{t('Productividad por cocinero')}</h3>
+            <h3 className="text-sm font-semibold text-foreground">{t('Готовые заказы по сотрудникам кухни')}</h3>
           </div>
-          <TableWrapper headers={[t('Nombre'), t('Pedidos atendidos'), t('Tiempo promedio (min)')]} isEmpty={productividad.length === 0} emptyMessage={t('Sin datos')}>
+          <TableWrapper headers={[t('Nombre'), t('Pedidos atendidos'), t('Время от заказа до готовности (мин)')]} isEmpty={productividad.length === 0} emptyMessage={t('Sin datos')}>
             {productividad.map((p, i) => (
               <Tr key={i}>
                 <Td className="font-medium">{p.nombre}</Td>
@@ -172,11 +186,32 @@ export default function ReportesPage() {
         </div>
       )}
 
-      {tab === 'Pedidos' && (
-        <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">
-          {t('Estadísticas de pedidos disponibles próximamente')}
+      {tab === 'Официанты' && (
+        <div className="space-y-4">
+          <div className="flex gap-2 flex-wrap">
+            {PERIODOS.map(({ key, label }) => <button key={key} onClick={() => setPeriodo(key)}
+              className={cn('px-4 py-1.5 rounded-m text-sm font-medium', periodo === key ? 'bg-primary text-white' : 'bg-muted text-muted-foreground')}>
+              {label}
+            </button>)}
+          </div>
+          <div className="bg-card border border-border rounded-l">
+            <div className="px-5 py-4 border-b border-border flex justify-between gap-3 flex-wrap">
+              <h3 className="text-sm font-semibold text-foreground">{t('Начисления официантам')}</h3>
+              <strong className="text-sm text-foreground">{t('К выплате по проценту: {sum}', { sum: formatCurrency(waiterEarnings.reduce((sum, row) => sum + row.accrued, 0)) })}</strong>
+            </div>
+            <TableWrapper headers={[t('Mesero'), t('Оплачено заказов'), t('Продажи'), t('Начислено за обслуживание')]}
+              isEmpty={waiterEarnings.length === 0} emptyMessage={t('Sin datos')}>
+              {waiterEarnings.map((row) => <Tr key={row.id}>
+                <Td className="font-medium">{row.nombre}</Td>
+                <Td>{row.pedidos}</Td>
+                <Td>{formatCurrency(row.ventas)}</Td>
+                <Td className="font-semibold">{formatCurrency(row.accrued)}</Td>
+              </Tr>)}
+            </TableWrapper>
+          </div>
         </div>
       )}
+
     </div>
   );
 }

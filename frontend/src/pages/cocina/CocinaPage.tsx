@@ -12,9 +12,9 @@ import { useAuthStore } from '../../store/authStore';
 import { isAdminLike } from '../../auth/permissions';
 import { authService } from '../../services/auth.service';
 
-// Solo ítems que van a cocina y aún no fueron marcados como servidos
-function itemsCocina(items: ItemPedido[]) {
-  return items.filter((i) => i.producto.requiereCocina !== false && !i.servido);
+// Готовые позиции помечаются как servido на сервере, поэтому не скрываем их в блоке «Готово».
+function itemsCocina(items: ItemPedido[], pendientes = false) {
+  return items.filter((i) => i.producto.requiereCocina !== false && (!pendientes || !i.servido));
 }
 
 export default function CocinaPage() {
@@ -57,7 +57,7 @@ export default function CocinaPage() {
   // Pendientes: en cocina o preparación (lo que aún no está listo)
   const pendientes = pedidos.filter((p) =>
     ['PENDIENTE', 'EN_COCINA', 'EN_PREPARACION'].includes(p.estado) &&
-    itemsCocina(p.items).length > 0
+    itemsCocina(p.items, true).length > 0
   );
 
   // Listos: ya marcados, esperando que el mesero los recoja
@@ -117,7 +117,7 @@ export default function CocinaPage() {
                 </h2>
                 <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                   {pendientes.map((pedido) => {
-                    const items = itemsCocina(pedido.items);
+                    const items = itemsCocina(pedido.items, true);
                     const enPrep = pedido.estado === 'EN_PREPARACION';
                     const minPrep = pedido.tiempoInicio ? Math.max(0, Math.floor((Date.now() - new Date(pedido.tiempoInicio).getTime()) / 60000)) : 0;
                     return (

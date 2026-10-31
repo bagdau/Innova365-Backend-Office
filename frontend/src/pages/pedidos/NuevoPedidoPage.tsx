@@ -11,21 +11,28 @@ import type { Producto, Categoria, Mesa } from '../../types';
 import toast from 'react-hot-toast';
 import { cn } from '../../utils/cn';
 import { Select } from '../../components/ui/Select';
+import { CategorySelect } from '../../components/shared/CategorySelect';
 import { t, apiError } from '../../i18n';
 import { SearchInput } from '../../components/shared/SearchInput';
 import { Highlight } from '../../components/shared/Highlight';
 import { useProductSearch } from '../../search/useSearch';
+import { useAuthStore } from '../../store/authStore';
+import { can } from '../../auth/permissions';
+import { serviceCharge } from '../../lib/serviceCharge';
 
 interface CartItem { producto: Producto; cantidad: number; }
 
 export default function NuevoPedidoPage() {
   const navigate = useNavigate();
+  const currentUser = useAuthStore((s) => s.user);
+  const rol = currentUser?.rol;
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialMesaId = searchParams.get('mesaId') ?? '';
 
   const [tipo, setTipo] = useState<'EN_MESA' | 'PARA_LLEVAR'>('EN_MESA');
   const [mesaId, setMesaId] = useState(initialMesaId);
+  const [waiterId, setWaiterId] = useState('');
   const [catActiva, setCatActiva] = useState<string>('todas');
   const [search, setSearch] = useState('');
   const mesaRef = useRef<HTMLButtonElement>(null);
@@ -45,6 +52,7 @@ export default function NuevoPedidoPage() {
   const { data: productos = [] } = useQuery<Producto[]>({ queryKey: ['productos'], queryFn: menuService.getProductos });
   const { data: categorias = [] } = useQuery<Categoria[]>({ queryKey: ['categorias'], queryFn: menuService.getCategorias });
   const { data: mesas = [] } = useQuery<Mesa[]>({ queryKey: ['mesas'], queryFn: mesasService.getAll });
+  const { data: waiters = [] } = useQuery({ queryKey: ['activeWaiters'], queryFn: pedidosService.getWaiters, enabled: rol === 'ADMIN' || rol === 'SUPERADMIN' || rol === 'CAJERO' });
 
   const filtroProd = useCallback((p: Producto) => p.disponible && (catActiva === 'todas' || p.categoriaId === catActiva), [catActiva]);
   const found = useProductSearch(productos, search, filtroProd);
@@ -76,14 +84,25 @@ export default function NuevoPedidoPage() {
   };
 
   const total = cart.reduce((s, i) => s + Number(i.producto.precio) * i.cantidad, 0);
+  const percent = rol === 'MESERO' ? Number(currentUser?.waiterPercent ?? 0) : Number(waiters.find((w) => w.id === waiterId)?.waiterPercent ?? 0);
+  const charge = serviceCharge(total, percent);
+  const totalWithService = total + charge;
+  const requiereCocina = cart.some((i) => i.producto.requiereCocina);
 
   const crearPedido = useMutation({
     mutationFn: () => pedidosService.create({
       tipo,
       mesaId: tipo === 'EN_MESA' ? mesaId : undefined,
+      meseroId: waiterId || undefined,
       items: cart.map((i) => ({ productoId: i.producto.id, cantidad: i.cantidad })),
     }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['mesas'] }); setMesaError(false); toast.success(t('Pedido enviado a cocina')); navigate('/mesas'); },
+    onSuccess: (pedido) => {
+      qc.invalidateQueries({ queryKey: ['mesas'] });
+      qc.invalidateQueries({ queryKey: ['pedidosActivos'] });
+      setMesaError(false);
+      toast.success(pedido.estado === 'LISTO' ? t('Pedido listo para entregar') : t('Pedido enviado a cocina'));
+      navigate(tipo === 'PARA_LLEVAR' ? (can(rol, 'caja') ? '/caja' : '/pedidos') : '/mesas');
+    },
     onError: (e: any) => toast.error(apiError(e, 'Error al crear pedido')),
   });
 
@@ -93,6 +112,8 @@ export default function NuevoPedidoPage() {
       <div className="flex-1 flex flex-col gap-4 min-w-0">
         {/* Selectors */}
         <div className="flex items-center gap-4 flex-wrap">
+          {rol !== 'MESERO' && waiters.length > 0 && <Select className="w-52" value={waiterId} onChange={setWaiterId}
+            options={[{ value: '', label: t('Без официанта') }, ...waiters.map((w) => ({ value: w.id, label: w.nombre }))]} />}
           {tipo === 'EN_MESA' && (
             <Select
               triggerRef={mesaRef}
@@ -120,20 +141,7 @@ export default function NuevoPedidoPage() {
           onEnter={() => { if (found.items.length === 1) { addItem(found.items[0]); setSearch(''); } }}
           className="max-w-md" />
 
-        {/* Category Tabs */}
-        <div className="flex gap-1.5 sm:gap-2 flex-nowrap sm:flex-wrap overflow-x-auto sm:overflow-visible -mx-1 px-1 pb-1 sm:pb-0">
-          <button
-            onClick={() => setCatActiva('todas')}
-            className={cn('px-3 sm:px-4 py-1.5 rounded-pill text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0', catActiva === 'todas' ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:text-foreground')}
-          >{t('Todas')}</button>
-          {categorias.map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => setCatActiva(cat.id)}
-              className={cn('px-3 sm:px-4 py-1.5 rounded-pill text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0', catActiva === cat.id ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:text-foreground')}
-            >{cat.nombre}</button>
-          ))}
-        </div>
+        <CategorySelect className="max-w-md" categorias={categorias} productos={productos} value={catActiva} onChange={setCatActiva} />
 
         {prodFiltrados.length === 0 && search.trim() && (
           <p className="text-sm text-muted-foreground py-6">{t('Nada encontrado para «{q}»', { q: search.trim() })}</p>
@@ -180,7 +188,7 @@ export default function NuevoPedidoPage() {
           className="lg:hidden fixed bottom-0 inset-x-0 z-30 flex items-center justify-between gap-3 px-4 py-3.5 bg-primary text-white shadow-2xl"
           style={{ paddingBottom: 'max(0.875rem, env(safe-area-inset-bottom))' }}>
           <span className="font-semibold">{t('Orden Actual')} · {cart.reduce((n, i) => n + i.cantidad, 0)}</span>
-          <span className="font-bold">{formatCurrency(total)}</span>
+          <span className="font-bold">{formatCurrency(totalWithService)}</span>
         </button>
       )}
       {cartOpen && <div className="lg:hidden fixed inset-0 z-30 bg-black/55 fade-in" onClick={() => setCartOpen(false)} />}
@@ -229,8 +237,9 @@ export default function NuevoPedidoPage() {
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>{t('Subtotal')}</span><span>{formatCurrency(total)}</span>
           </div>
+          {percent > 0 && <div className="flex justify-between text-xs text-muted-foreground"><span>{t('Обслуживание {n}%', { n: percent })}</span><span>{formatCurrency(charge)}</span></div>}
           <div className="flex justify-between text-base font-bold text-foreground">
-            <span>{t('TOTAL')}</span><span className="text-primary">{formatCurrency(total)}</span>
+            <span>{t('TOTAL')}</span><span className="text-primary">{formatCurrency(totalWithService)}</span>
           </div>
           <Button
             className="w-full"
@@ -238,7 +247,7 @@ export default function NuevoPedidoPage() {
             disabled={cart.length === 0}
             onClick={() => (sinMesa ? pedirMesa() : crearPedido.mutate())}
           >
-            <CheckCircle size={15} /> {t('Confirmar y enviar a cocina')}
+            <CheckCircle size={15} /> {requiereCocina ? t('Confirmar y enviar a cocina') : t('Confirmar pedido')}
           </Button>
           {sinMesa && cart.length > 0 && (
             <p className="text-xs text-warning text-center">{t('Elige una mesa o «Para llevar»')}</p>

@@ -11,6 +11,7 @@ const { PinLimiter } = require('../lib/pin');
 const { testReceipt } = require('../lib/escpos');
 const { pickBest, looksLikeReceipt } = require('../lib/printers');
 const { printHtmlSilent } = require('./print-silent');
+const { SERVICE_URL, normalizeCode, validCode } = require('../lib/activation');
 
 const WIDTHS = [58, 80];
 const CODEPAGES = ['cp866', 'cp1251', 'ascii'];
@@ -19,7 +20,7 @@ const CODEPAGES = ['cp866', 'cp1251', 'ascii'];
 function pickPatch(/** @type {any} */ p) {
   const o = p && typeof p === 'object' ? p : {};
   const out = /** @type {any} */ ({});
-  for (const k of ['serverUrl', 'officeUrl', 'fullscreen', 'kiosk', 'autoStart', 'closeToTray', 'zoom']) if (k in o) out[k] = o[k];
+  for (const k of ['officeUrl', 'fullscreen', 'kiosk', 'autoStart', 'closeToTray', 'zoom']) if (k in o) out[k] = o[k];
   if (o.agent && typeof o.agent === 'object') { out.agent = {}; for (const k of ['enabled', 'lan', 'port', 'extraOrigins']) if (k in o.agent) out.agent[k] = o.agent[k]; }
   if (o.print && typeof o.print === 'object') { out.print = {}; for (const k of ['silent', 'deviceName']) if (k in o.print) out.print[k] = o.print[k]; }
   return out;
@@ -56,13 +57,34 @@ function registerIpc(ctx, win) {
   const view = () => ({ config: config.view(), agent: ctx.agent.status() });
 
   ui('state', (e) => {
-    const base = { version: app.getVersion(), platform: process.platform, first: !config.get().serverUrl, hasPin: config.hasPin() };
+    const base = { version: app.getVersion(), platform: process.platform, first: !ctx.localEngine && !config.hasActivation(), hasPin: config.hasPin() };
     if (!isUnlocked(e)) return { ok: true, locked: true, ...base };
     return {
       ok: true, locked: false, ...base, ...view(),
       versions: { electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node },
       userData: app.getPath('userData'),
     };
+  }, false);
+
+  ui('activate', async (_e, code) => {
+    if (ctx.localEngine) return { ok: false, error: 'Касса работает локально и не требует сетевой активации' };
+    if (config.hasActivation()) return { ok: false, error: 'Приложение уже активировано' };
+    if (!validCode(code)) return { ok: false, error: 'Введите код XXXX-XXXX-XXXX' };
+    let response;
+    try {
+      response = await electron.net.fetch(`${SERVICE_URL}/api/desktop/activate`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code: normalizeCode(code), installationId: config.get().activation.installationId }),
+        signal: AbortSignal.timeout(10000),
+      });
+    } catch { return { ok: false, error: 'Нет связи с сервером. Проверьте интернет.' }; }
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) return { ok: false, error: typeof data.error === 'string' ? data.error : 'Не удалось активировать приложение' };
+    config.activate(data.token, data.restaurant);
+    ctx.onSettingsChanged?.();
+    win.reloadMain();
+    win.showMain();
+    return { ok: true, restaurantName: data.restaurant.name };
   }, false);
 
   ui('unlock', (e, pin) => {
@@ -166,7 +188,27 @@ function registerIpc(ctx, win) {
     const url = e.sender.getURL();
     return win.isTrusted(url) || (!!config.get().officeUrl && originOf(url) === originOf(config.get().officeUrl));
   };
+  const fromMainSite = (/** @type {Electron.IpcMainInvokeEvent} */ e) =>
+    fromSite(e) && !!e.senderFrame && e.senderFrame === e.sender.mainFrame;
   ipcMain.handle('web:info', (e) => (fromSite(e) ? { version: app.getVersion() } : {}));
+  ipcMain.handle('web:systemPrinters', async (e) => {
+    if (!fromMainSite(e)) return { ok: false, error: 'forbidden' };
+    try {
+      const printers = await e.sender.getPrintersAsync();
+      const defaults = await ctx.printer.list().catch(() => []);
+      return { ok: true, printers: printers.map((p) => ({ name: p.name, displayName: p.displayName || p.name, isDefault: defaults.some((d) => d.name === p.name && d.isDefault) })) };
+    } catch (err) { return { ok: false, error: /** @type {Error} */ (err).message }; }
+  });
+  ipcMain.handle('web:printDocument', async (e, html, deviceName, page) => {
+    if (!fromMainSite(e)) return { ok: false, error: 'forbidden' };
+    if (typeof html !== 'string' || !html || html.length > 4_000_000 || typeof deviceName !== 'string' || !deviceName || deviceName.length > 200) return { ok: false, error: 'invalid print request' };
+    if (!page || !Number.isFinite(page.widthMm) || !Number.isFinite(page.heightMm) || page.widthMm < 40 || page.widthMm > 320 || page.heightMm < 40 || page.heightMm > 3000) return { ok: false, error: 'invalid paper size' };
+    try {
+      const printers = await e.sender.getPrintersAsync();
+      if (!printers.some((p) => p.name === deviceName)) return { ok: false, error: `Принтер «${deviceName}» не найден в Windows` };
+      return await printHtmlSilent(html, { deviceName, page, log });
+    } catch (err) { return { ok: false, error: /** @type {Error} */ (err).message }; }
+  });
   ipcMain.handle('web:printHtml', async (e, html, opts) => {
     if (!fromSite(e)) return { handled: false };
     const cfg = config.get();

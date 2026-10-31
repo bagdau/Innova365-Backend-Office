@@ -40,7 +40,7 @@ export default function EntregasPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-lg font-bold text-foreground">{t('Pedido #{n}', { n: p.numero })}</div>
-                    <div className="text-xs text-muted-foreground">{p.tiempoListo ? timeAgo(p.tiempoListo) : ''}{p.mesero?.nombre ? ` · ${p.mesero.nombre}` : ''}</div>
+                    <div className="text-xs text-muted-foreground">{p.tiempoListo ? timeAgo(p.tiempoListo) : ''}{p.mesero?.nombre ? ` · ${t('Pedido registrado por')}: ${p.mesero.nombre}` : ''}</div>
                   </div>
                   <div className="text-lg font-bold text-primary flex-shrink-0">{p.total !== undefined && p.total !== null ? formatCurrency(Number(p.total)) : ''}</div>
                 </div>

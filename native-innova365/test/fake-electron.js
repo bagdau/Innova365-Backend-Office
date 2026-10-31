@@ -58,6 +58,8 @@ function makeElectron({ userData }) {
         const s = new EventEmitter();
         s.name = name; s.permReq = null; s.permCheck = null; s.devPerm = null;
         s.setPermissionRequestHandler = (f) => { s.permReq = f; }; s.setPermissionCheckHandler = (f) => { s.permCheck = f; }; s.setDevicePermissionHandler = (f) => { s.devPerm = f; };
+        s.webRequest = { onBeforeSendHeaders: (_filter, fn) => { s.beforeHeaders = fn; }, onCompleted: (_filter, fn) => { s.completed = fn; } };
+        s.clearStorageData = async () => { s.cookiesCleared = true; };
         sessions.set(name, s);
       }
       return sessions.get(name);

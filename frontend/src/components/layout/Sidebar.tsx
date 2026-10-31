@@ -21,6 +21,7 @@ const navItems: Array<{ to: string; icon: typeof LayoutDashboard; label: string;
   { to: '/cocina',        icon: ChefHat,         label: t('Cocina'),         route: 'cocina' },
   { to: '/entregas',      icon: Bike,            label: t('Entregas'),       route: 'entregas' },
   { to: '/menu',          icon: Utensils,        label: t('Menú'),           route: 'menu' },
+  { to: '/techcards',     icon: ChefHat,         label: 'Техкарты',          route: 'techcards' },
   { to: '/inventario',    icon: Package,         label: t('Inventario'),     route: 'inventario' },
   { to: '/reportes',      icon: BarChart2,       label: t('Reportes'),       route: 'reportes' },
   { to: '/usuarios',      icon: Users,           label: t('Usuarios'),       route: 'usuarios' },

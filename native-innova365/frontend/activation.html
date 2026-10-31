@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Innova365 — Активация</title>
+  <link rel="stylesheet" href="ui.css">
+</head>
+<body class="activation-page">
+  <div class="center">
+    <main class="activation-card card">
+      <img class="brand-image" src="logo.png" alt="Innova365 POS">
+      <h1>Активация приложения</h1>
+      <label class="l" for="code">Код активации</label>
+      <input id="code" class="activation-code" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="14" placeholder="XXXX-XXXX-XXXX" aria-describedby="message">
+      <div class="msg" id="message" role="alert" aria-live="polite"></div>
+      <button class="btn activation-button" id="activate" type="button">Активировать</button>
+    </main>
+  </div>
+  <script src="activation.js"></script>
+</body>
+</html>

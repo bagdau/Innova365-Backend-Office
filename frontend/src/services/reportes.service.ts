@@ -1,9 +1,12 @@
 import { api } from './api';
+import type { CashReport, CashReportPeriod } from '../types/cashReport';
 
 export const reportesService = {
+  getCashReport: (periodo: CashReportPeriod) => api.get<CashReport>('/reportes/caja', { params: { periodo } }).then((r) => r.data),
   getVentas: (periodo: string) => api.get('/reportes/ventas', { params: { periodo } }).then((r) => r.data),
-  getTopProductos: () => api.get('/reportes/productos').then((r) => r.data),
-  getProductividad: () => api.get('/reportes/cocineros').then((r) => r.data),
+  getTopProductos: (periodo: CashReportPeriod) => api.get('/reportes/productos', { params: { periodo } }).then((r) => r.data),
+  getProductividad: (periodo: CashReportPeriod) => api.get('/reportes/cocineros', { params: { periodo } }).then((r) => r.data),
+  getWaiterEarnings: (periodo: CashReportPeriod) => api.get('/reportes/meseros', { params: { periodo } }).then((r) => r.data),
   getDashboard: () => api.get('/dashboard').then((r) => r.data),
   getRestaurante: () => api.get('/restaurante').then((r) => r.data),
   updateRestaurante: (data: any) => api.put('/restaurante', data).then((r) => r.data),

@@ -11,7 +11,11 @@ export interface Restaurante {
   telefono?: string;
   pieTicket?: string;
   qrTicket?: string;
+  printSettings?: import('../lib/printSettings').PrintSettings | null;
   timerMesa: number;
+  /** время работы «ЧЧ:ММ»; закрытие раньше открытия — работа через полночь */
+  horaApertura?: string | null;
+  horaCierre?: string | null;
 }
 
 export interface Usuario {
@@ -19,7 +23,9 @@ export interface Usuario {
   nombre: string;
   email: string;
   rol: Rol;
+  waiterPercent?: number;
   activo: boolean;
+  pinConfigured?: boolean;
   restauranteId: string;
   restaurante?: { id: string; nombre: string };
   creadoEn: string;
@@ -39,6 +45,8 @@ export interface Categoria {
   id: string;
   nombre: string;
   restauranteId: string;
+  /** принтер станции (кухня/бар/самса): позиции категории печатаются на нём вместе с чеком */
+  impresoraId?: string | null;
 }
 
 export interface Producto {
@@ -84,12 +92,20 @@ export interface Pedido {
   mesaId?: string;
   mesa?: { numero: number } | null;
   meseroId?: string;
-  mesero?: { nombre: string } | null;
+  mesero?: { nombre: string; rol?: Rol } | null;
+  cocineroId?: string | null;
+  cocineroNombre?: string | null;
   restauranteId: string;
   items: ItemPedido[];
   pagado: boolean;
   metodoPago?: string;
+  cajeroNombre?: string | null;
+  cajeroRol?: string | null;
   total?: number;
+  servicePercent?: number;
+  serviceAmount?: number;
+  serviceDecimals?: number;
+  pagadoEn?: string | null;
   tiempoInicio?: string;
   tiempoListo?: string;
   creadoEn: string;

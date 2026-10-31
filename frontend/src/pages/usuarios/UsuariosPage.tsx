@@ -18,6 +18,7 @@ import { assignableRoles, canManageUser } from '../../auth/permissions';
 
 const TODOS_ROLES = ['SUPERADMIN', 'ADMIN', 'CAJERO', 'MESERO', 'COCINERO', 'REPARTIDOR'];
 
+
 export default function UsuariosPage() {
   const qc = useQueryClient();
   const me = useAuthStore((st) => st.user);
@@ -25,7 +26,7 @@ export default function UsuariosPage() {
   const [editing, setEditing] = useState<Usuario | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [filtroRol, setFiltroRol] = useState('');
-  const { register, control, handleSubmit, reset, formState: { isSubmitting } } = useForm();
+  const { register, control, handleSubmit, reset, watch, formState: { errors, isSubmitting } } = useForm();
 
   const { data: usuarios = [], isLoading } = useQuery<Usuario[]>({
     queryKey: ['usuarios'],
@@ -33,9 +34,12 @@ export default function UsuariosPage() {
   });
 
   const save = useMutation({
-    mutationFn: (data: any) => editing
-      ? reportesService.updateUsuario(editing.id, data)
-      : reportesService.createUsuario(data),
+    mutationFn: (data: any) => {
+      const payload = { ...data, waiterPercent: data.rol === 'MESERO' ? Number(data.waiterPercent ?? 0) : 0 };
+      if (!payload.pin || payload.clearPin) delete payload.pin;
+      if (!payload.clearPin) delete payload.clearPin;
+      return editing ? reportesService.updateUsuario(editing.id, payload) : reportesService.createUsuario(payload);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['usuarios'] });
       setShowModal(false); setEditing(null); reset();
@@ -52,7 +56,7 @@ export default function UsuariosPage() {
 
   const openEdit = (u: Usuario) => {
     setEditing(u);
-    reset({ nombre: u.nombre, email: u.email, rol: u.rol, activo: u.activo });
+    reset({ nombre: u.nombre, email: u.email, rol: u.rol, waiterPercent: Number(u.waiterPercent ?? 0), activo: u.activo, pin: '', clearPin: false });
     setShowModal(true);
   };
 
@@ -74,7 +78,7 @@ export default function UsuariosPage() {
             </button>
           ))}
         </div>
-        <Button size="sm" onClick={() => { setEditing(null); reset({ activo: true }); setShowModal(true); }}>
+        <Button size="sm" onClick={() => { setEditing(null); reset({ activo: true, waiterPercent: 0, pin: '', clearPin: false }); setShowModal(true); }}>
           <UserPlus size={14} /> {t('Nuevo Usuario')}
         </Button>
       </div>
@@ -92,6 +96,7 @@ export default function UsuariosPage() {
                 {!u.activo && <StatusBadge variant="inactivo" />}
               </div>
               <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+              {u.rol === 'MESERO' && <p className="text-xs text-muted-foreground">{t('Обслуживание {n}%', { n: Number(u.waiterPercent ?? 0) })}</p>}
             </div>
             {canManageUser(me?.rol, me?.id, u) ? (
               <div className="flex gap-1 flex-shrink-0">
@@ -105,7 +110,7 @@ export default function UsuariosPage() {
 
       <div className="hidden md:block">
       <TableWrapper
-        headers={[t('Usuario'), t('Email'), t('Rol'), t('Estado'), t('Creado'), t('Acciones')]}
+        headers={[t('Usuario'), t('Email'), t('Rol'), t('Обслуживание'), t('Estado'), t('Creado'), t('Acciones')]}
         isEmpty={visibles.length === 0}
         emptyMessage={isLoading ? t('Cargando...') : t('Sin usuarios')}
       >
@@ -125,6 +130,7 @@ export default function UsuariosPage() {
                 {rolLabel(u.rol)}
               </span>
             </Td>
+            <Td>{u.rol === 'MESERO' ? `${Number(u.waiterPercent ?? 0)}%` : '—'}</Td>
             <Td><StatusBadge variant={u.activo ? 'activo' : 'inactivo'} /></Td>
             <Td className="text-muted-foreground text-xs">{formatDate(u.creadoEn)}</Td>
             <Td>
@@ -160,12 +166,29 @@ export default function UsuariosPage() {
             </div>
           )}
           <div>
+            <label className="text-sm font-medium text-foreground block mb-1.5">{t('PIN-код сотрудника (4 цифры)')}</label>
+            <input type="password" inputMode="numeric" data-vkb-im="pin" maxLength={4} autoComplete="off" placeholder={editing?.pinConfigured ? t('Оставьте пустым, чтобы сохранить текущий PIN') : '••••'}
+              disabled={!!watch('clearPin')}
+              {...register('pin', { validate: (value: string) => !value || /^\d{4}$/.test(value) || t('Введите PIN из 4 цифр') })}
+              className="w-full bg-muted border border-border rounded-m px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary disabled:opacity-50" />
+            {errors.pin && <p className="text-xs text-error mt-1">{String(errors.pin.message)}</p>}
+          </div>
+          {editing?.pinConfigured && <label className="flex items-center gap-2 text-sm text-foreground">
+            <input type="checkbox" {...register('clearPin')} className="accent-primary" />{t('Удалить PIN сотрудника')}
+          </label>}
+          <div>
             <label className="text-sm font-medium text-foreground block mb-1.5">{t('Rol')}</label>
             <Controller name="rol" control={control} rules={{ required: true }} render={({ field }) => (
               <Select value={field.value ?? ''} onChange={field.onChange} disabled={!!editing && editing.id === me?.id}
                 options={(editing && !ROLES.includes(editing.rol) ? [editing.rol, ...ROLES] : ROLES).map((r) => ({ value: r, label: rolLabel(r), disabled: !ROLES.includes(r) }))} />
             )} />
           </div>
+          {watch('rol') === 'MESERO' && <div>
+            <label className="text-sm font-medium text-foreground block mb-1.5">{t('Обслуживание, %')}</label>
+            <input type="number" min="0" max="100" step="0.01" inputMode="decimal"
+              {...register('waiterPercent', { min: 0, max: 100, valueAsNumber: true })}
+              className="w-full bg-muted border border-border rounded-m px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
+          </div>}
           <div className="flex items-center gap-2">
             <input type="checkbox" id="activo" {...register('activo')} className="accent-primary" />
             <label htmlFor="activo" className="text-sm text-foreground">{t('Activo')}</label>

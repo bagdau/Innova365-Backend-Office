@@ -107,6 +107,7 @@ export function PrintPanel() {
   const { data: estado = [], refetch, isFetching, isLoading: estadoLoading } = useQuery<EstadoImpresora[]>({
     queryKey: ['imprimirEstado'], queryFn: impresionService.estado, enabled: !!job?.server, refetchInterval: job ? 8000 : false, staleTime: 3000,
   });
+  const stationPrinters = useMemo(() => estado.filter((p) => p.tipo !== 'NAVEGADOR' && p.usos.includes('COCINA')), [estado]);
   const eligible = useMemo(() => {
     if (!job?.server) return [];
     const uso = USO[job.server.tipo];
@@ -555,16 +556,19 @@ export function PrintPanel() {
               </section>
             )}
 
-            {stationList.length > 0 && (
-              <section className="space-y-1.5">
+            {stationsOn && stationPrinters.length > 0 && (
+              <section className="space-y-1.5 rounded-l border border-border bg-muted/40 p-3">
                 <p className="text-sm font-medium text-foreground">{t('Печатать также на станциях')}</p>
-                {stationList.map((st) => (
-                  <label key={st.impresoraId} className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
-                    <input type="checkbox" className="accent-primary" checked={!stOff.includes(st.impresoraId)}
-                      onChange={(e) => { setStationOff(st.impresoraId, !e.target.checked); setStOff(getStationsOff()); }} />
-                    <span>{st.impresora}<span className="text-xs text-muted-foreground"> · {st.items} {t('поз.')}</span></span>
-                  </label>
-                ))}
+                {stationPrinters.map((st) => {
+                  const n = stationList.find((x) => x.impresoraId === st.id)?.items ?? 0;
+                  return (
+                    <label key={st.id} className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
+                      <input type="checkbox" className="accent-primary" checked={!stOff.includes(st.id)}
+                        onChange={(e) => { setStationOff(st.id, !e.target.checked); setStOff(getStationsOff()); }} />
+                      <span>{st.nombre}<span className="text-xs text-muted-foreground"> · {n > 0 ? `${n} ${t('поз.')}` : t('нет позиций в заказе')}</span></span>
+                    </label>
+                  );
+                })}
                 <p className="text-xs text-muted-foreground">{t('Выбор запоминается на этой кассе.')}</p>
               </section>
             )}

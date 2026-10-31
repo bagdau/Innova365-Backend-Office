@@ -21,6 +21,10 @@ export interface Impresora {
   activa: boolean;
 }
 
+/** Принтер станции (кухня/бар/самса): печатает только тикеты позиций, чеки на него не отправляются. */
+export const isStationPrinter = (p: { usos: UsoImpresora[] }): boolean =>
+  p.usos.includes('COCINA') && !p.usos.includes('RECIBO') && !p.usos.includes('CUENTA');
+
 export type ImpresoraInput = Partial<Omit<Impresora, 'id' | 'tieneToken'>> & { token?: string | null };
 
 export interface ResultadoImpresion { impresoraId: string; impresora: string; ok: boolean; ms: number; error?: string; detalle?: string }

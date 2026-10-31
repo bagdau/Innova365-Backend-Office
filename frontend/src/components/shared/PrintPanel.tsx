@@ -4,7 +4,7 @@ import { Printer, X, Globe, Sparkles, AlertTriangle, RefreshCw, FileText, Scroll
 import toast from 'react-hot-toast';
 import { usePrintPanel, getQuickPrint, setQuickPrint } from '../../lib/printPanel';
 import { layoutDocument, printSrcdoc, type Fit, type LayoutResult, type Orient, type Paper } from '../../lib/print';
-import { impresionService, type EstadoImpresora, type HostEncontrado, type UsoImpresora } from '../../services/impresion.service';
+import { impresionService, isStationPrinter, type EstadoImpresora, type HostEncontrado, type UsoImpresora } from '../../services/impresion.service';
 import { getDevicePrinter, printStations, getStationsOff, setStationOff } from '../../lib/printClient';
 import { probeAgent, agentPrinters, rawPrinterName, supportsRaw, printLocal, getLocalCfg, setLocalCfg, type LocalCfg } from '../../lib/localPrinter';
 import { hasNativePrinter, systemPrinters, getNativePrinter, setNativePrinter, printNativeDocument } from '../../lib/nativePrinter';
@@ -111,7 +111,8 @@ export function PrintPanel() {
   const eligible = useMemo(() => {
     if (!job?.server) return [];
     const uso = USO[job.server.tipo];
-    return estado.filter((p) => p.tipo !== 'NAVEGADOR' && (p.usos.includes(uso) || estado.every((x) => !x.usos.includes(uso))));
+    const forReceipt = job.server.tipo === 'recibo' || job.server.tipo === 'cuenta';
+    return estado.filter((p) => p.tipo !== 'NAVEGADOR' && !(forReceipt && isStationPrinter(p)) && (p.usos.includes(uso) || estado.every((x) => !x.usos.includes(uso) || (forReceipt && isStationPrinter(x)))));
   }, [estado, job]);
   const bestAuto = useMemo(() => [...eligible].filter((p) => p.online).sort((a, b) => a.ms - b.ms)[0], [eligible]);
 

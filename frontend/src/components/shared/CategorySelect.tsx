@@ -21,9 +21,10 @@ export function CategorySelect({ categorias, productos, value, onChange, classNa
     const row = (id: string, name: string, n: number, all = false) => ({
       value: id, text: name,
       label: (
-        <span className="flex items-center justify-between gap-3 w-full">
+        <span className="inline-flex items-center gap-2 min-w-0">
           <span className={cn('truncate', n === 0 && !all && 'text-muted-foreground')}>{name}</span>
-          <span className="text-xs text-muted-foreground tabular-nums">{n}</span>
+          <span className={cn('inline-flex items-center justify-center min-w-[1.5rem] h-5 px-1.5 rounded-full text-[11px] font-semibold leading-none tabular-nums flex-shrink-0',
+            n === 0 ? 'bg-muted text-muted-foreground/70' : all ? 'bg-primary text-white' : 'bg-primary/15 text-primary')}>{n}</span>
         </span>
       ),
     });

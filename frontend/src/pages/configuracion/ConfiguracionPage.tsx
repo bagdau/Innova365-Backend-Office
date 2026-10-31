@@ -67,11 +67,12 @@ export default function ConfiguracionPage() {
 
   const [moneda, setMoneda] = useState('KZT');
   const [qrPago, setQrPago] = useState('');
+  const [qrTicket, setQrTicket] = useState('');
   useEffect(() => {
-    if (restaurante) { setMoneda((restaurante as any).moneda ?? 'KZT'); setQrPago((restaurante as any).qrPago ?? ''); }
+    if (restaurante) { setMoneda((restaurante as any).moneda ?? 'KZT'); setQrPago((restaurante as any).qrPago ?? ''); setQrTicket((restaurante as any).qrTicket ?? ''); }
   }, [restaurante]);
   const savePagos = useMutation({
-    mutationFn: () => reportesService.updateRestaurante({ moneda, qrPago: qrPago.trim() || null }),
+    mutationFn: () => reportesService.updateRestaurante({ moneda, qrPago: qrPago.trim() || null, qrTicket: qrTicket.trim() || null }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['restaurante'] }); toast.success(t('Configuración guardada')); },
     onError: (e) => toast.error(apiError(e, 'Error al guardar')),
   });
@@ -98,7 +99,7 @@ export default function ConfiguracionPage() {
           <div className="bg-card border border-border rounded-l p-6">
             <h3 className="text-base font-semibold text-foreground mb-5">{t('Datos del restaurante')}</h3>
             <form onSubmit={handleSubmit((d) => saveGeneral.mutate({ ...d, horaApertura: d.horaApertura || null, horaCierre: d.horaCierre || null }))} className="space-y-4 max-w-lg">
-              {[['nombre', t('Nombre del restaurante')], ['direccion', t('Dirección')], ['telefono', t('Teléfono')], ['pieTicket', t('Texto al pie del recibo')], ['qrTicket', t('Contenido del QR en el recibo (enlace)')]].map(([field, label]) => (
+              {[['nombre', t('Nombre del restaurante')], ['direccion', t('Dirección')], ['telefono', t('Teléfono')], ['pieTicket', t('Texto al pie del recibo')]].map(([field, label]) => (
                 <div key={field}>
                   <label className="text-sm font-medium text-foreground block mb-1.5">{label}</label>
                   <input {...register(field)} className="w-full bg-muted border border-border rounded-m px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
@@ -137,9 +138,15 @@ export default function ConfiguracionPage() {
               <p className="text-xs text-muted-foreground mt-2">{t('Ejemplo')}: {(() => { const c = CURRENCIES.find((x) => x.code === moneda); if (!c) return ''; const n = new Intl.NumberFormat(undefined, { minimumFractionDigits: c.decimals, maximumFractionDigits: c.decimals }).format(1500.5); return 'before' in c && c.before ? `${c.symbol}${n}` : `${n} ${c.symbol}`; })()}</p>
             </div>
             <div>
-              <h3 className="text-base font-semibold text-foreground mb-1">{t('QR para pago')}</h3>
-              <p className="text-sm text-muted-foreground mb-3">{t('Enlace o datos que se codifican en el QR al pagar con «QR». Puedes usar {total}, {numero}, {moneda}, {restaurante}.')}</p>
+              <h3 className="text-base font-semibold text-foreground mb-1">{t('QR для оплаты')}</h3>
+              <p className="text-sm text-muted-foreground mb-3">{t('Ссылка или реквизиты для QR, который показывается клиенту при оплате «QR» (Kaspi и т. п.). На чек этот QR не попадает. Можно использовать {total}, {numero}, {moneda}, {restaurante}.')}</p>
               <input value={qrPago} onChange={(e) => setQrPago(e.target.value)} placeholder="https://pay.example.com/shop?amount={total}"
+                className="w-full bg-muted border border-border rounded-m px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-foreground mb-1">{t('QR на чеке')}</h3>
+              <p className="text-sm text-muted-foreground mb-3">{t('Ссылка в QR-коде, который печатается внизу чека (например Instagram, 2GIS или страница отзывов). Если пусто — в QR попадут данные чека. Можно использовать {numero}, {total}, {fecha}, {moneda}, {restaurante}.')}</p>
+              <input value={qrTicket} onChange={(e) => setQrTicket(e.target.value)} placeholder="https://www.instagram.com/ваш_аккаунт"
                 className="w-full bg-muted border border-border rounded-m px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
             </div>
             <Button loading={savePagos.isPending} onClick={() => savePagos.mutate()}>{t('Guardar cambios')}</Button>

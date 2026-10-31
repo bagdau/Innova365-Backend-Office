@@ -10,6 +10,7 @@ import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { menuService } from '../../services/menu.service';
+import { impresionService } from '../../services/impresion.service';
 import { formatCurrency } from '../../utils/cn';
 import type { Producto, Categoria } from '../../types';
 import toast from 'react-hot-toast';
@@ -61,6 +62,7 @@ export default function MenuPage() {
   const recetaOf = new Map(recetas.map((r) => [r.productoId, r]));
   const [showCatModal, setShowCatModal] = useState(false);
   const [newCat, setNewCat] = useState('');
+  const [newCatPrinter, setNewCatPrinter] = useState('');
   const [editingCat, setEditingCat] = useState<Categoria | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -68,6 +70,7 @@ export default function MenuPage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const { data: productos = [] } = useQuery<Producto[]>({ queryKey: ['productos'], queryFn: menuService.getProductos });
+  const { data: impresoras = [] } = useQuery({ queryKey: ['impresoras'], queryFn: impresionService.list, staleTime: 60_000, retry: false });
   const { data: categorias = [] } = useQuery<Categoria[]>({ queryKey: ['categorias'], queryFn: menuService.getCategorias });
 
   const { register, control, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<FormData>({
@@ -116,7 +119,7 @@ export default function MenuPage() {
   });
 
   const addCat = useMutation({
-    mutationFn: () => editingCat ? menuService.updateCategoria(editingCat.id, newCat.trim()) : menuService.createCategoria(newCat.trim()),
+    mutationFn: () => editingCat ? menuService.updateCategoria(editingCat.id, newCat.trim(), newCatPrinter || null) : menuService.createCategoria(newCat.trim(), newCatPrinter || null),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['categorias'] });
       qc.invalidateQueries({ queryKey: ['productos'] });
@@ -132,7 +135,7 @@ export default function MenuPage() {
     onError: (e) => toast.error(apiError(e, 'Error al eliminar')),
   });
 
-  const closeCat = () => { setShowCatModal(false); setNewCat(''); setEditingCat(null); };
+  const closeCat = () => { setShowCatModal(false); setNewCat(''); setNewCatPrinter(''); setEditingCat(null); };
 
   const openNew = () => {
     setEditing(null);
@@ -190,7 +193,7 @@ export default function MenuPage() {
         <div className="flex gap-2 w-full sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none">
           {catActiva !== 'todas' && (() => { const c = categorias.find((x) => x.id === catActiva); return c ? (<>
             <button type="button" aria-label={t('Renombrar categoría')} title={t('Renombrar categoría')}
-              onClick={() => { setEditingCat(c); setNewCat(c.nombre); setShowCatModal(true); }}
+              onClick={() => { setEditingCat(c); setNewCat(c.nombre); setNewCatPrinter(c.impresoraId ?? ''); setShowCatModal(true); }}
               className="!flex-none w-9 h-9 flex items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted"><Pencil size={14} /></button>
             <button type="button" aria-label={t('Eliminar categoría')} title={t('Eliminar categoría')}
               onClick={() => { if (confirm(t('¿Eliminar la categoría «{n}»?', { n: c.nombre }))) delCat.mutate(c.id); }}
@@ -381,6 +384,12 @@ export default function MenuPage() {
               placeholder={t('Ej: Combos, Bebidas, Ensaladas...')}
               className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary"
               onKeyDown={(e) => e.key === 'Enter' && newCat.trim() && addCat.mutate()} />
+          </div>
+          <div>
+            <label className="text-sm font-medium text-foreground block mb-1.5">{t('Принтер станции (кухня, бар, самса)')}</label>
+            <Select value={newCatPrinter} onChange={setNewCatPrinter}
+              options={[{ value: '', label: t('Не печатать на станции') }, ...impresoras.filter((x) => x.activa && x.tipo !== 'NAVEGADOR').map((x) => ({ value: x.id, label: x.nombre }))]} />
+            <p className="text-xs text-muted-foreground mt-1">{t('Позиции этой категории печатаются на выбранном принтере одновременно с чеком.')}</p>
           </div>
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={closeCat}>{t('Cancelar')}</Button>

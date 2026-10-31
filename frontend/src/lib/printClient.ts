@@ -3,7 +3,7 @@ import { impresionService } from '../services/impresion.service';
 import { reportesService } from '../services/reportes.service';
 import { printReceiptBrowser, printCashReport, type RestauranteInfo } from './documents';
 import { getQuickPrint } from './printPanel';
-import { getLocalCfg, probeAgent, agentPrinters, rawPrinterName, printLocal } from './localPrinter';
+import { getLocalCfg, probeAgent, agentPrinters, rawPrinterName, printLocal, sendBytesViaAgent } from './localPrinter';
 import { usbSupport, savedPrinter, printUsb } from './usbPrinter';
 import { hasNativePrinter } from './nativePrinter';
 import { selectedIpPrinter, printIp, getPref, setPref, type Pref } from './ipPrinters';
@@ -39,14 +39,14 @@ export async function printOrder(kind: 'recibo' | 'cuenta', pedido: Pedido): Pro
 async function printOrderDirect(kind: 'recibo' | 'cuenta', pedido: Pedido): Promise<void> {
   if (hasNativePrinter()) return printReceiptBrowser(pedido, await restaurante(), kind, undefined, { autoPrint: true });
   if (getPref() === 'system') return printReceiptBrowser(pedido, await restaurante(), kind, undefined, { autoPrint: true });
-  if (await printViaPreferred(kind, pedido.id)) return;
+  if (await printViaPreferred(kind, pedido.id)) { void printStations(pedido.id, kind); return; }
   const loading = toast.loading(t('Imprimiendo...'));
   try {
     const r = await impresionService.imprimir({ tipo: kind, pedidoId: pedido.id, impresoraId: getDevicePrinter() ?? undefined, lang });
     toast.dismiss(loading);
     const ok = r.resultados.filter((x) => x.ok);
     const bad = r.resultados.filter((x) => !x.ok);
-    if (ok.length) toast.success(t('Impreso: {name}', { name: ok.map((x) => x.impresora).join(', ') }));
+    if (ok.length) { toast.success(t('Impreso: {name}', { name: ok.map((x) => x.impresora).join(', ') })); void printStations(pedido.id, kind); }
     bad.forEach((x) => toast.error(`${x.impresora}: ${t('No se pudo imprimir')}${x.detalle ? ' — ' + x.detalle : ''}`, { duration: 7000 }));
     if (r.fallback) {
       if (bad.length) toast(t('Se abre la impresión del navegador'), { icon: '🖨️' });
@@ -58,6 +58,36 @@ async function printOrderDirect(kind: 'recibo' | 'cuenta', pedido: Pedido): Prom
     // нет связи с сервером печати → браузер
     await printReceiptBrowser(pedido, await restaurante(), kind);
   }
+}
+
+const stationSent = new Map<string, number>();
+
+/**
+ * Тикеты станций (кухня / бар / самса): вместе с печатью чека все сетевые принтеры, к которым привязаны категории заказа,
+ * получают свои позиции одновременно (параллельно, через агент на ПК кассы). Ошибки показываются, но печать чека не блокируют.
+ */
+export async function printStations(pedidoId: string | undefined, tipo: 'recibo' | 'cuenta'): Promise<void> {
+  if (!pedidoId) return;
+  const key = `${tipo}:${pedidoId}`;
+  if (Date.now() - (stationSent.get(key) ?? 0) < 15_000) return; // двойной вызов (кнопка + автопечать) не дублирует тикеты
+  stationSent.set(key, Date.now());
+  try {
+    const list = await impresionService.estaciones(pedidoId, lang);
+    if (!list.length) return;
+    const cfg = getLocalCfg();
+    const agent = cfg.enabled ? await probeAgent(cfg.url) : null;
+    const agentOk = !!agent?.online && agent.allowed !== false;
+    const results = await Promise.allSettled(list.map(async (s) => {
+      if (!s.host) throw new Error('no ip');
+      if (!agentOk) throw new Error('agent');
+      await sendBytesViaAgent(s.host, s.puerto, s.data, cfg);
+    }));
+    results.forEach((r, i) => {
+      const name = list[i].impresora;
+      if (r.status === 'fulfilled') toast.success(t('Impreso: {name}', { name }));
+      else toast.error(`${name}: ${t('No se pudo imprimir')} — ${(r.reason as Error).message === 'agent' ? t('el agente de impresión no responde') : (r.reason as Error).message}`, { duration: 7000 });
+    });
+  } catch { /* связь с сервером недоступна — чек уже напечатан, станции можно повторить из истории */ }
 }
 
 /** Печать на сетевой IP-принтер этого рабочего места (через агент на ПК или с сервера). */
@@ -138,7 +168,7 @@ export interface RespuestaPago {
  * с автозапуском (для принтера, установленного в Windows этого компьютера). Чек не теряется ни в одном случае.
  */
 export async function printAfterPayment(pedido: Pedido, metodo: string, resp?: RespuestaPago): Promise<void> {
-  if (resp?.impresion?.impreso) { toast.success(t('Impreso: {name}', { name: resp.impresion.impresora ?? '' })); return; }
+  if (resp?.impresion?.impreso) { toast.success(t('Impreso: {name}', { name: resp.impresion.impresora ?? '' })); void printStations(pedido.id, 'recibo'); return; }
   const paid = { ...pedido, estado: 'PAGADO', pagado: true, metodoPago: metodo,
     actualizadoEn: resp?.actualizadoEn ?? new Date().toISOString(),
     pagadoEn: resp?.pagadoEn ?? new Date().toISOString(),
@@ -146,11 +176,11 @@ export async function printAfterPayment(pedido: Pedido, metodo: string, resp?: R
     cajeroRol: resp?.cajeroRol ?? pedido.cajeroRol } as Pedido;
   if (hasNativePrinter()) { await printReceiptBrowser(paid, await restaurante(), 'recibo', undefined, { autoPrint: true }); return; }
   if (getPref() === 'system') { await printReceiptBrowser(paid, await restaurante(), 'recibo', undefined, { autoPrint: true }); return; }
-  if (await printViaPreferred('recibo', pedido.id)) return;           // USB / агент / IP-принтер этого рабочего места — сначала тот, что сработал в прошлый раз
+  if (await printViaPreferred('recibo', pedido.id)) { void printStations(pedido.id, 'recibo'); return; }           // USB / агент / IP-принтер этого рабочего места — сначала тот, что сработал в прошлый раз
   try {
     const r = await impresionService.imprimir({ tipo: 'recibo', pedidoId: pedido.id, impresoraId: getDevicePrinter() ?? undefined, lang });
     const ok = r.resultados.find((x) => x.ok);
-    if (ok) { toast.success(t('Impreso: {name}', { name: ok.impresora })); return; }
+    if (ok) { toast.success(t('Impreso: {name}', { name: ok.impresora })); void printStations(pedido.id, 'recibo'); return; }
   } catch { /* нет связи с сервером печати — откроем окно печати */ }
   // Если чековый принтер недоступен, открываем предпросмотр с системной печатью браузера.
   await printReceiptBrowser(paid, await restaurante(), 'recibo');

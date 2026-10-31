@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../prisma';
 import { HttpError } from '../idem';
 import { isAdminRole } from '../roles';
-import { imprimir, imprimirPrueba, estadoImpresoras, generarBytes, TipoImpresion } from '../print/print.service';
+import { imprimir, imprimirPrueba, estadoImpresoras, generarBytes, estacionesBytes, TipoImpresion } from '../print/print.service';
 import { assertHostAllowed, listAgentPrinters, sendToPrinter } from '../print/transport';
 import { olvidar } from '../print/health';
 import { descubrir, comprobar, isPrivateSubnet, isPrivateHost, assertPort } from '../print/discovery';
@@ -124,6 +124,13 @@ async function bytesDe(req: Request, b: Doc) {
 /** ESC/POS-байты документа для печати через агент на ПК кассы (сервер в интернете принтер не видит). */
 export async function getBytes(req: Request, res: Response): Promise<void> {
   res.json(await bytesDe(req, req.body as Doc));
+}
+
+/** Тикеты станций (кухня/бар/самса) к чеку: список принтеров с готовыми ESC/POS-байтами. */
+export async function getEstaciones(req: Request, res: Response): Promise<void> {
+  const b = req.body as { pedidoId?: string; lang?: string };
+  if (!b.pedidoId) throw new HttpError(400, 'Datos inválidos');
+  res.json({ estaciones: await estacionesBytes(req.restauranteId!, b.pedidoId, b.lang === 'en' ? 'en' : 'ru') });
 }
 
 /**

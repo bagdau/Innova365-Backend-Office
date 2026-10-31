@@ -154,17 +154,18 @@ export function receiptDoc(r: Restaurante, p: PedidoPrint, o: Opts, kind: 'recib
   return finish(e, o, kind === 'recibo');
 }
 
-export function kitchenDoc(p: PedidoPrint, o: Opts, itemIds?: string[]): Buffer {
-  const onlyNew = !!itemIds?.length;
+/** station — тикет станции (кухня/бар/самса): заголовок = имя принтера, фильтр requiereCocina не применяется (бар печатает напитки). */
+export function kitchenDoc(p: PedidoPrint, o: Opts, itemIds?: string[], station?: { title: string }): Buffer {
+  const onlyNew = !!itemIds?.length && !station;
   const t = L[o.lang];
   const e = new EscPos(o.cols, o.cp);
-  e.align('center').bold(true).size(2, 2).line(t.kitchen).size(1, 1).line(onlyNew ? t.add : t.newOrder).bold(false).align('left');
+  e.align('center').bold(true).size(2, 2).line(station ? station.title.toUpperCase() : t.kitchen).size(1, 1).line(onlyNew ? t.add : t.newOrder).bold(false).align('left');
   e.rule('=');
   e.bold(true).size(2, 2).line(where(p, o.lang)).size(1, 1).bold(false);
   e.between(`${t.order} N${p.numero}`, fmtDate(p.creadoEn).slice(11));
   if (p.mesero) e.line(`${t.orderBy}: ${p.mesero.nombre}`);
   e.rule();
-  const items = p.items.filter((i) => i.producto.requiereCocina && (!onlyNew || (!!i.id && itemIds!.includes(i.id))));
+  const items = p.items.filter((i) => (station ? !!i.id && !!itemIds?.includes(i.id) : i.producto.requiereCocina && (!onlyNew || (!!i.id && itemIds!.includes(i.id)))));
   for (const it of items) {
     e.bold(true).size(2, 2);
     wrap(`${it.cantidad} x ${it.producto.nombre}`, Math.floor(o.cols / 2)).forEach((l) => e.line(l));

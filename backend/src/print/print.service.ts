@@ -152,6 +152,33 @@ export function autoImprimir(restauranteId: string, tipo: 'recibo' | 'cocina', p
 }
 
 
+export interface EstacionDoc { impresoraId: string; impresora: string; host: string | null; puerto: number; ancho: number; items: number; data: string }
+
+/**
+ * Тикеты станций к чеку: позиции заказа группируются по принтеру категории (Categoria.impresoraId),
+ * для каждого принтера — готовые байты ESC/POS. Печатает их агент на кассе (сервер в интернете сеть кассы не видит).
+ * Категории без принтера и неактивные принтеры пропускаются.
+ */
+export async function estacionesBytes(restauranteId: string, pedidoId: string, lang: 'ru' | 'en' = 'ru'): Promise<EstacionDoc[]> {
+  const { p: pedido } = await loadPedido(restauranteId, pedidoId);
+  const rows = await prisma.itemPedido.findMany({
+    where: { pedidoId, pedido: { restauranteId } },
+    select: { id: true, producto: { select: { categoria: { select: { impresora: true } } } } },
+  });
+  const groups = new Map<string, { row: NonNullable<(typeof rows)[number]['producto']['categoria']['impresora']>; ids: string[] }>();
+  for (const it of rows) {
+    const imp = it.producto.categoria.impresora;
+    if (!imp || !imp.activa || imp.tipo === 'NAVEGADOR') continue;
+    const g = groups.get(imp.id) ?? { row: imp, ids: [] };
+    g.ids.push(it.id); groups.set(imp.id, g);
+  }
+  return [...groups.values()].map(({ row, ids }) => {
+    const cfg = cfgOf(row);
+    const doc = kitchenDoc(pedido, optsOf(cfg, lang), ids, { title: row.nombre });
+    return { impresoraId: row.id, impresora: row.nombre, host: row.host, puerto: row.puerto ?? 9100, ancho: row.ancho, items: ids.length, data: repeat(doc, 1).toString('base64') };
+  });
+}
+
 /** Состояние всех активных принтеров (для окна печати: зелёная/красная точка и автоподбор). */
 export async function estadoImpresoras(restauranteId: string) {
   const rows = await prisma.impresora.findMany({ where: { restauranteId, activa: true }, orderBy: { creadoEn: 'asc' } });

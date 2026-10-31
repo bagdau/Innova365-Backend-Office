@@ -21,7 +21,7 @@ import { getVentas, getTopProductos, getProductividad, getCashReport, getWaiterE
 import { getCompras, getCompra, createCompra, recibirCompra, cancelarCompra } from '../controllers/compras.controller';
 import { getProveedores, createProveedor, updateProveedor, getMovimientos, ajustarInsumo, aplicarRevision } from '../controllers/almacen.controller';
 import { getRecetas, getReceta, getRecetaStock, putReceta, getConsumo } from '../controllers/recetas.controller';
-import { getImpresoras, createImpresora, updateImpresora, deleteImpresora, pruebaImpresora, agentePrinters, imprimirDocumento, getTrabajos, getDisponibles, descubrirImpresoras, comprobarImpresora, getEstado, getBytes, imprimirIp } from '../controllers/impresion.controller';
+import { getImpresoras, createImpresora, updateImpresora, deleteImpresora, pruebaImpresora, agentePrinters, imprimirDocumento, getTrabajos, getDisponibles, descubrirImpresoras, comprobarImpresora, getEstado, getBytes, getEstaciones, imprimirIp } from '../controllers/impresion.controller';
 import { getEnLinea, getAuditoria } from '../controllers/monitor.controller';
 import { notifyOnWrite, eventsHandler } from '../middleware/realtime.middleware';
 import { getUsuarios, createUsuario, updateUsuario, deleteUsuario, getRestaurante, updateRestaurante, getDashboardStats, getPerfil, updatePerfil, changePassword } from '../controllers/usuarios.controller';
@@ -109,6 +109,7 @@ router.get('/auditoria',  ownerOnly, asyncHandler(getAuditoria));
 router.post('/imprimir',              roleMiddleware('ADMIN', 'CAJERO', 'MESERO'), validateBody(imprimirSchema), asyncHandler(imprimirDocumento));
 router.post('/imprimir/ip',           roleMiddleware('ADMIN', 'CAJERO', 'MESERO'), asyncHandler(imprimirIp));
 router.post('/imprimir/bytes',        roleMiddleware('ADMIN', 'CAJERO', 'MESERO'), asyncHandler(getBytes));
+router.post('/imprimir/estaciones',    roleMiddleware('ADMIN', 'CAJERO', 'MESERO'), asyncHandler(getEstaciones));
 router.get('/imprimir/estado',       roleMiddleware('ADMIN', 'CAJERO', 'MESERO'), asyncHandler(getEstado));
 router.get('/imprimir/impresoras',   roleMiddleware('ADMIN', 'CAJERO', 'MESERO'), asyncHandler(getDisponibles));
 router.get('/impresoras',             roleMiddleware('ADMIN'), asyncHandler(getImpresoras));

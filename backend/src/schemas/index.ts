@@ -199,6 +199,8 @@ export const updateProductoSchema = createProductoSchema.partial();
 
 export const categoriaSchema = z.object({
   nombre: z.string().trim().min(1, 'Укажите название').max(60),
+  /** принтер станции (кухня/бар/самса); null — позиции категории ни на какую станцию не печатаются */
+  impresoraId: z.string().min(1).nullable().optional(),
 });
 
 /* ──────── Склад: ингредиенты ──────── */

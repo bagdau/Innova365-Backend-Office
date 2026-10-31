@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import { usePrintPanel, getQuickPrint, setQuickPrint } from '../../lib/printPanel';
 import { layoutDocument, printSrcdoc, type Fit, type LayoutResult, type Orient, type Paper } from '../../lib/print';
 import { impresionService, type EstadoImpresora, type HostEncontrado, type UsoImpresora } from '../../services/impresion.service';
-import { getDevicePrinter } from '../../lib/printClient';
+import { getDevicePrinter, printStations } from '../../lib/printClient';
 import { probeAgent, agentPrinters, rawPrinterName, supportsRaw, printLocal, getLocalCfg, setLocalCfg, type LocalCfg } from '../../lib/localPrinter';
 import { hasNativePrinter, systemPrinters, getNativePrinter, setNativePrinter, printNativeDocument } from '../../lib/nativePrinter';
 import { Select } from '../ui/Select';
@@ -186,6 +186,8 @@ export function PrintPanel() {
   const printNow = useCallback(async () => {
     if (!job || busy) return;
     setBusy(true); setErrors([]);
+    // чек ушёл на принтер → станции (кухня/бар/самса) получают свои позиции одновременно
+    const stations = () => { const sv = job.server; if (sv && sv.pedidoId && (sv.tipo === 'recibo' || sv.tipo === 'cuenta')) void printStations(sv.pedidoId, sv.tipo); };
     try {
       if (target.startsWith('system:')) {
         if (!layout) throw new Error(t('Cargando...'));
@@ -194,6 +196,7 @@ export function PrintPanel() {
         setNativePrinter(name);
         setPref('system');
         toast.success(`Задание передано Windows: ${name}`);
+        stations();
         close();
         return;
       }
@@ -202,6 +205,7 @@ export function PrintPanel() {
         const r = await printIp(job.server, selIp, typeof paper === 'number' ? paper : undefined);
         setPref('ip');
         toast.success(t('Impreso: {name}', { name: r.printer }));
+        stations();
         close();
         return;
       }
@@ -209,6 +213,7 @@ export function PrintPanel() {
         const r = await printUsb(job.server, typeof paper === 'number' ? paper : undefined);
         setPref('usb');
         toast.success(t('Impreso: {name}', { name: r.printer }));
+        stations();
         close();
         return;
       }
@@ -216,19 +221,21 @@ export function PrintPanel() {
         const r = await printLocal(job.server, typeof paper === 'number' ? { ...lcfg, ancho: paper } : lcfg);
         setPref('local');
         toast.success(t('Impreso: {name}', { name: r.printer }));
+        stations();
         close();
         return;
       }
       if (physical && job.server) {
         const r = await impresionService.imprimir({ ...job.server, impresoraId: target === 'auto' ? undefined : target, lang: printLang });
         const ok = r.resultados.find((x) => x.ok);
-        if (ok) { toast.success(t('Impreso: {name}', { name: ok.impresora })); close(); return; }
+        if (ok) { toast.success(t('Impreso: {name}', { name: ok.impresora })); stations(); close(); return; }
         setErrors(r.resultados.map((x) => `${x.impresora}: ${t('No se pudo imprimir')}${x.detalle ? ' — ' + x.detalle : ''}`).concat(r.resultados.length ? [] : [t('No hay impresora configurada para reportes')]));
         void refetch();
         return;
       }
       if (!layout) return;
       await printSrcdoc(layout.srcdoc);
+      stations();
       close();
     } catch (e: any) {
       setErrors([e?.response?.status === 403 ? t('Sin permisos para esta acción') : target === 'local' || target === 'browser' || target.startsWith('system:') ? `${t('No se pudo imprimir')} — ${e?.message ?? ''}` : target === 'usb' ? usbErr(e) : target === 'ip' ? ipErr(e) : t('No se pudo imprimir')]);

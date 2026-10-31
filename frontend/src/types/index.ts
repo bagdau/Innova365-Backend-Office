@@ -42,6 +42,8 @@ export interface Categoria {
   id: string;
   nombre: string;
   restauranteId: string;
+  /** принтер станции (кухня/бар/самса): позиции категории печатаются на нём вместе с чеком */
+  impresoraId?: string | null;
 }
 
 export interface Producto {

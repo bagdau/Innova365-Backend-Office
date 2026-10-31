@@ -59,6 +59,15 @@ export function rawPrinterName(configured: string, printers: AgentPrinter[]): st
 
 const b64ToBytes = (b64: string): Uint8Array => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 
+/** Отдаёт готовые ESC/POS-байты (base64) агенту на ПК кассы для передачи на сетевой принтер ip:port (порт 9100). */
+export async function sendBytesViaAgent(ip: string, port: number, data64: string, cfg: LocalCfg = getLocalCfg()): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`${cfg.url.replace(/\/+$/, '')}/print?host=${ip}&port=${port}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: b64ToBytes(data64) as BodyInit, signal: AbortSignal.timeout(12000) });
+  } catch { throw new Error('agent unreachable'); }
+  if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `agent ${res.status}`);
+}
+
 /** Печатает документ на принтере этого компьютера. Бросает Error с понятным текстом при сбое. */
 export async function printLocal(doc: { tipo: 'recibo' | 'cuenta' | 'cocina' | 'cierre' | 'prueba'; pedidoId?: string; periodo?: 'hoy' | 'semana' | 'mes' }, cfg: LocalCfg = getLocalCfg()): Promise<{ printer: string; ms: number }> {
   const ip = /^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d+))?$/.exec(cfg.printer.trim());

@@ -130,6 +130,9 @@ model Categoria {
   restauranteId String
   restaurante   Restaurante @relation(fields: [restauranteId], references: [id])
   productos     Producto[]
+  /// Станция: принтер (кухня/бар/самса), на который печатаются позиции этой категории вместе с чеком
+  impresoraId   String?
+  impresora     Impresora?  @relation(fields: [impresoraId], references: [id], onDelete: SetNull)
 
   @@index([restauranteId])
 }
@@ -411,6 +414,7 @@ model Impresora {
   activa        Boolean       @default(true)
   creadoEn      DateTime      @default(now())
   trabajos      TrabajoImpresion[]
+  categorias    Categoria[]
 
   @@index([restauranteId])
 }

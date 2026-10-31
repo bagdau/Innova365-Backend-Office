@@ -14,6 +14,7 @@ import { currencySymbol } from '../../lib/currency';
 import { PayQr } from '../../components/shared/PayQr';
 import { printOrder, printDayClosing, printAfterPayment } from '../../lib/printClient';
 import { DevicePrinter } from '../../components/shared/DevicePrinter';
+import { StationToggles } from '../../components/shared/StationToggles';
 import { Printer, FileText } from 'lucide-react';
 import { useNow, minutesSince } from '../../hooks/useNow';
 
@@ -74,7 +75,7 @@ export default function CajaPage() {
     <div className="flex flex-col lg:flex-row gap-4 lg:gap-5 h-full">
       {/* Pending List (на телефоне скрывается, когда выбран заказ) */}
       <div className={cn('w-full lg:w-80 lg:flex-shrink-0 flex-col bg-card border border-border rounded-l', selected ? 'hidden lg:flex' : 'flex')}>
-        <div className="px-4 pt-3"><DevicePrinter /></div>
+        <div className="px-4 pt-3 space-y-2"><DevicePrinter /><StationToggles /></div>
         <div className="px-4 py-4 border-b border-border flex items-center justify-between">
           <h3 className="text-sm font-semibold text-foreground">{t('Pendientes de pago')}</h3>
           <div className="flex items-center gap-2">

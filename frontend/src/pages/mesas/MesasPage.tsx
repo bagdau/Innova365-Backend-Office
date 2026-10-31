@@ -1,3 +1,4 @@
+import { StationToggles } from '../../components/shared/StationToggles';
 import { liveInterval } from '../../lib/live';
 import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -171,6 +172,7 @@ export default function MesasPage() {
 
   return (
     <div className="space-y-5">
+      <StationToggles />
       {/* Stats + Actions */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-5 text-sm flex-wrap">

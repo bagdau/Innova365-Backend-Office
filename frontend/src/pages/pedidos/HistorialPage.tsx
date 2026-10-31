@@ -1,3 +1,4 @@
+import { StationToggles } from '../../components/shared/StationToggles';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -51,6 +52,7 @@ export default function HistorialPage() {
 
   return (
     <div className="space-y-4">
+      <StationToggles />
       {/* Filtros */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[180px] max-w-xs">

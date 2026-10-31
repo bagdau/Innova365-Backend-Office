@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Printer, X, Globe, Sparkles, AlertTriangle, RefreshCw, FileText, ScrollText, Search, Plus, MonitorSmartphone, Usb, Network, Trash2 } from 'lucide-react';
+import { ArrowLeft, Printer, X, Globe, Sparkles, AlertTriangle, RefreshCw, FileText, ScrollText, Search, Plus, MonitorSmartphone, Usb, Network, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { usePrintPanel, getQuickPrint, setQuickPrint } from '../../lib/printPanel';
 import { layoutDocument, printSrcdoc, type Fit, type LayoutResult, type Orient, type Paper } from '../../lib/print';
@@ -9,6 +9,7 @@ import { getDevicePrinter, printStations, getStationsOff, setStationOff } from '
 import { probeAgent, agentPrinters, rawPrinterName, supportsRaw, printLocal, getLocalCfg, setLocalCfg, type LocalCfg } from '../../lib/localPrinter';
 import { hasNativePrinter, systemPrinters, getNativePrinter, setNativePrinter, printNativeDocument } from '../../lib/nativePrinter';
 import { Select } from '../ui/Select';
+import { useIsMobile } from '../ui/Floating';
 import { usbSupport, savedPrinter, connectUsbPrinter, printUsb } from '../../lib/usbPrinter';
 import { getIpPrinters, selectedIpPrinter, setSelectedIp, addIpPrinter, removeIpPrinter, parseIp, discoverIp, printIp, getPref, setPref, type IpPrinter, type Pref } from '../../lib/ipPrinters';
 import { printLang, apiError } from '../../i18n';
@@ -35,6 +36,22 @@ const Seg = <T extends string | number>({ value, onChange, options }: { value: T
 /** Предпросмотр, выбор чекового принтера и системная печать браузера. */
 export function PrintPanel() {
   const { job, close } = usePrintPanel();
+  const mobile = useIsMobile();
+  const previewRef = useRef<HTMLIFrameElement>(null);
+
+  // Кнопка «Назад» телефона (и стрелка браузера) закрывает окно печати, а не уводит со страницы.
+  useEffect(() => {
+    if (!job) return;
+    const mark = { innovaPrint: Date.now() };
+    try { history.pushState(mark, ''); } catch { return; }
+    let own = true;
+    const onPop = () => { own = false; close(); };
+    window.addEventListener('popstate', onPop);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      if (own && (history.state as { innovaPrint?: number } | null)?.innovaPrint === mark.innovaPrint) history.back();
+    };
+  }, [job]); // eslint-disable-line react-hooks/exhaustive-deps
   const [target, setTarget] = useState<string>('browser');     // 'auto' | id принтера | 'browser'
   const [paper, setPaper] = useState<Paper>('A4');
   const [fit, setFit] = useState<Fit>('auto');
@@ -240,13 +257,16 @@ export function PrintPanel() {
         return;
       }
       if (!layout) return;
+      // На телефоне печатаем видимый предпросмотр прямо в окне: скрытый iframe за экраном уводит на пустую страницу без кнопки «Назад».
+      const frame = previewRef.current?.contentWindow;
+      if (mobile && frame) { frame.focus(); frame.print(); stations(); return; }
       await printSrcdoc(layout.srcdoc);
       stations();
       close();
     } catch (e: any) {
       setErrors([e?.response?.status === 403 ? t('Sin permisos para esta acción') : target === 'local' || target === 'browser' || target.startsWith('system:') ? `${t('No se pudo imprimir')} — ${e?.message ?? ''}` : target === 'usb' ? usbErr(e) : target === 'ip' ? ipErr(e) : t('No se pudo imprimir')]);
     } finally { setBusy(false); }
-  }, [job, busy, physical, target, layout, close, refetch, lcfg, selIp, paper]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [job, busy, physical, target, layout, close, refetch, lcfg, selIp, paper, mobile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // чек после оплаты: печать стартует сама, как только документ готов
   useEffect(() => {
@@ -321,7 +341,8 @@ export function PrintPanel() {
       <div className="relative bg-card border border-border sm:rounded-l shadow-2xl w-full sm:w-[min(1080px,96vw)] h-full sm:h-[min(760px,94vh)] flex flex-col pop-in overflow-hidden">
         <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-border flex-shrink-0">
           <div className="flex items-center gap-2 min-w-0">
-            <Printer size={18} className="text-primary flex-shrink-0" />
+            <button onClick={close} data-sound="none" aria-label={t('Назад')} className="sm:hidden -ml-2 flex items-center gap-1 pl-2 pr-3 py-2 rounded-full text-sm font-medium text-foreground hover:bg-muted flex-shrink-0"><ArrowLeft size={18} />{t('Назад')}</button>
+            <Printer size={18} className="text-primary flex-shrink-0 hidden sm:block" />
             <h2 className="text-base font-semibold text-foreground truncate">{t('Imprimir')} — {job.title}</h2>
           </div>
           <button onClick={close} data-sound="none" aria-label={t('Cerrar')} className="p-2 -mr-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted"><X size={20} /></button>
@@ -337,7 +358,7 @@ export function PrintPanel() {
             <div ref={box} className="flex-1 min-h-0 overflow-auto p-4 flex justify-center items-start">
               {layout ? (
                 <div style={{ width: pw * s, height: ph * s }} className="flex-shrink-0 shadow-xl ring-1 ring-black/10 bg-white">
-                  <iframe title="preview" srcDoc={layout.srcdoc} sandbox="allow-same-origin"
+                  <iframe ref={previewRef} title="preview" srcDoc={layout.srcdoc} sandbox="allow-same-origin allow-modals"
                     style={{ width: pw, height: ph, transform: `scale(${s})`, transformOrigin: 'top left', border: 0, background: '#fff', display: 'block' }} />
                 </div>
               ) : <div className="text-sm text-muted-foreground py-10">{t('Cargando...')}</div>}

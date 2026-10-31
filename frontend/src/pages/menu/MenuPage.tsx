@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, Trash2, Search, ImagePlus, ChefHat, Coffee, ClipboardList } from 'lucide-react';
 import { useForm, Controller } from 'react-hook-form';
 import { Select } from '../../components/ui/Select';
+import { CategorySelect } from '../../components/shared/CategorySelect';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button } from '../../components/ui/Button';
@@ -175,20 +176,7 @@ export default function MenuPage() {
       <div className="flex items-center justify-between gap-2 sm:gap-3 flex-wrap">
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap min-w-0 w-full sm:w-auto">
           <SearchInput value={search} onChange={setSearch} hotkey="/" className="w-full sm:w-60" />
-          <div className="flex gap-1.5 sm:gap-2 flex-nowrap sm:flex-wrap overflow-x-auto sm:overflow-visible -mx-1 px-1 pb-1 sm:pb-0 w-full sm:w-auto">
-            <button onClick={() => setCatActiva('todas')}
-              className={cn('px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap flex-shrink-0',
-                catActiva === 'todas' ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:text-foreground')}>
-              {t('Todas ({n})', { n: productos.length })}
-            </button>
-            {categorias.map((c) => (
-              <button key={c.id} onClick={() => setCatActiva(c.id)}
-                className={cn('px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap flex-shrink-0',
-                  catActiva === c.id ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:text-foreground')}>
-                {c.nombre}
-              </button>
-            ))}
-          </div>
+          <CategorySelect className="w-full sm:w-64" categorias={categorias} productos={productos} value={catActiva} onChange={setCatActiva} />
         </div>
         <div className="flex gap-2 w-full sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none">
           {catActiva !== 'todas' && (() => { const c = categorias.find((x) => x.id === catActiva); return c ? (<>

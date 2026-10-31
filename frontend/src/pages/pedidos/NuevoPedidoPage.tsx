@@ -11,6 +11,7 @@ import type { Producto, Categoria, Mesa } from '../../types';
 import toast from 'react-hot-toast';
 import { cn } from '../../utils/cn';
 import { Select } from '../../components/ui/Select';
+import { CategorySelect } from '../../components/shared/CategorySelect';
 import { t, apiError } from '../../i18n';
 import { SearchInput } from '../../components/shared/SearchInput';
 import { Highlight } from '../../components/shared/Highlight';
@@ -140,20 +141,7 @@ export default function NuevoPedidoPage() {
           onEnter={() => { if (found.items.length === 1) { addItem(found.items[0]); setSearch(''); } }}
           className="max-w-md" />
 
-        {/* Category Tabs */}
-        <div className="flex gap-1.5 sm:gap-2 flex-nowrap sm:flex-wrap overflow-x-auto sm:overflow-visible -mx-1 px-1 pb-1 sm:pb-0">
-          <button
-            onClick={() => setCatActiva('todas')}
-            className={cn('px-3 sm:px-4 py-1.5 rounded-pill text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0', catActiva === 'todas' ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:text-foreground')}
-          >{t('Todas')}</button>
-          {categorias.map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => setCatActiva(cat.id)}
-              className={cn('px-3 sm:px-4 py-1.5 rounded-pill text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0', catActiva === cat.id ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:text-foreground')}
-            >{cat.nombre}</button>
-          ))}
-        </div>
+        <CategorySelect className="max-w-md" categorias={categorias} productos={productos} value={catActiva} onChange={setCatActiva} />
 
         {prodFiltrados.length === 0 && search.trim() && (
           <p className="text-sm text-muted-foreground py-6">{t('Nada encontrado para «{q}»', { q: search.trim() })}</p>

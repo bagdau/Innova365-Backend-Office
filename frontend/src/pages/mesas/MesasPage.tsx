@@ -1,3 +1,4 @@
+import { CategorySelect } from '../../components/shared/CategorySelect';
 import { StationToggles } from '../../components/shared/StationToggles';
 import { liveInterval } from '../../lib/live';
 import { useState, useCallback } from 'react';
@@ -388,20 +389,7 @@ export default function MesasPage() {
           <SearchInput value={search} onChange={setSearch} autoFocus />
 
           {/* Filtro categoría */}
-          <div className="flex gap-2 flex-wrap">
-            <button onClick={() => setCatFiltro('todas')}
-              className={cn('px-3 py-1 rounded-full text-xs font-medium transition-colors',
-                catFiltro === 'todas' ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:text-foreground')}>
-              {t('Todos')}
-            </button>
-            {categorias.map((c) => (
-              <button key={c.id} onClick={() => setCatFiltro(c.id)}
-                className={cn('px-3 py-1 rounded-full text-xs font-medium transition-colors',
-                  catFiltro === c.id ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:text-foreground')}>
-                {c.nombre}
-              </button>
-            ))}
-          </div>
+          <CategorySelect categorias={categorias} productos={productos} value={catFiltro} onChange={setCatFiltro} allLabel={t('Todos')} />
 
           {/* Lista de productos */}
           <div className="max-h-72 overflow-y-auto space-y-2 pr-1">

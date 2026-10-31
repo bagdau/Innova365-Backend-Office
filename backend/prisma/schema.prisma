@@ -25,6 +25,9 @@ model Restaurante {
   qrPago      String?
   /// Настройки оформления чеков и кассовых отчётов для всех рабочих мест
   printSettings Json?
+  /// Время работы заведения «ЧЧ:ММ»; закрытие раньше открытия — работа через полночь (например 10:00–02:00)
+  horaApertura String?
+  horaCierre   String?
   creadoEn    DateTime @default(now())
 
   usuarios   Usuario[]

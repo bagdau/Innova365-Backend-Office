@@ -228,7 +228,11 @@ export const updateInsumoSchema = z.object({
 
 /* ──────── Настройки ресторана ──────── */
 const optTxt = (max: number) => z.string().trim().max(max).nullable().optional();
+/** Время «ЧЧ:ММ» (24 ч); null — не задано */
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Время в формате ЧЧ:ММ').nullable().optional();
 export const updateRestauranteSchema = z.object({
+  horaApertura: hhmm,
+  horaCierre: hhmm,
   nombre: z.string().trim().min(1, 'Укажите название').max(80).optional(),
   direccion: optTxt(200),
   telefono: optTxt(40),

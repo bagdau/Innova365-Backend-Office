@@ -18,6 +18,15 @@ import { CURRENCIES, currencyName } from '../../lib/currency';
 
 const TABS = ['General', 'Pagos y moneda', 'Mesas', 'Impresoras', 'Чеки и отчёты', 'Notificaciones', 'Приложение'];
 
+/** Сводка по времени работы «ЧЧ:ММ»; закрытие раньше открытия — работа через полночь. */
+function workingHours(from?: string | null, to?: string | null): { from: string; to: string; hours: number; overnight: boolean } | null {
+  const m = (v?: string | null) => { const r = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(v ?? ''); return r ? Number(r[1]) * 60 + Number(r[2]) : null; };
+  const a = m(from), b = m(to);
+  if (a === null || b === null || !from || !to) return null;
+  const mins = (b - a + 1440) % 1440 || 1440;
+  return { from, to, hours: Math.round((mins / 60) * 10) / 10, overnight: b <= a && mins !== 1440 };
+}
+
 export default function ConfiguracionPage() {
   const [tab, setTab] = useState('General');
   const [timer, setTimer] = useState<number>(45);
@@ -28,7 +37,10 @@ export default function ConfiguracionPage() {
   const { data: restaurante } = useQuery<Restaurante>({ queryKey: ['restaurante'], queryFn: reportesService.getRestaurante });
   const { data: mesas = [] } = useQuery<Mesa[]>({ queryKey: ['mesas'], queryFn: mesasService.getAll });
 
-  const { register, handleSubmit, reset, formState: { isSubmitting } } = useForm();
+  const { register, handleSubmit, reset, watch, formState: { isSubmitting } } = useForm();
+  const horaApertura = watch('horaApertura') as string | null | undefined;
+  const horaCierre = watch('horaCierre') as string | null | undefined;
+  const horario = workingHours(horaApertura, horaCierre);
   useEffect(() => {
     if (restaurante) {
       reset(restaurante);
@@ -85,7 +97,7 @@ export default function ConfiguracionPage() {
         {tab === 'General' && (
           <div className="bg-card border border-border rounded-l p-6">
             <h3 className="text-base font-semibold text-foreground mb-5">{t('Datos del restaurante')}</h3>
-            <form onSubmit={handleSubmit((d) => saveGeneral.mutate(d))} className="space-y-4 max-w-lg">
+            <form onSubmit={handleSubmit((d) => saveGeneral.mutate({ ...d, horaApertura: d.horaApertura || null, horaCierre: d.horaCierre || null }))} className="space-y-4 max-w-lg">
               {[['nombre', t('Nombre del restaurante')], ['direccion', t('Dirección')], ['telefono', t('Teléfono')], ['pieTicket', t('Texto al pie del recibo')], ['qrTicket', t('Contenido del QR en el recibo (enlace)')]].map(([field, label]) => (
                 <div key={field}>
                   <label className="text-sm font-medium text-foreground block mb-1.5">{label}</label>
@@ -93,6 +105,23 @@ export default function ConfiguracionPage() {
                   {field === 'nombre' && <p className="text-xs text-muted-foreground mt-1">{t('Al cambiar el nombre, los correos del personal reciben el nuevo dominio (nombre@restaurante.com). Hay que entrar con el correo nuevo.')}</p>}
                 </div>
               ))}
+              <div>
+                <label className="text-sm font-medium text-foreground block mb-1.5">{t('Время работы ресторана')}</label>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <label className="flex items-center gap-2 text-sm text-muted-foreground">{t('Открытие')}
+                    <input type="time" {...register('horaApertura')} className="bg-muted border border-border rounded-m px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
+                  </label>
+                  <span className="text-muted-foreground">—</span>
+                  <label className="flex items-center gap-2 text-sm text-muted-foreground">{t('Закрытие')}
+                    <input type="time" {...register('horaCierre')} className="bg-muted border border-border rounded-m px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
+                  </label>
+                </div>
+                <p className="text-xs mt-1.5 text-muted-foreground">
+                  {horario
+                    ? <span className="inline-flex items-center gap-2"><span className="px-2 py-0.5 rounded-full bg-primary/15 text-primary font-semibold">{horario.from} — {horario.to}</span>{horario.hours === 24 ? t('круглосуточно') : `${horario.hours} ${t('ч в день')}`}{horario.overnight ? ` · ${t('закрытие после полуночи')}` : ''}</span>
+                    : t('Укажите время открытия и закрытия. Если ресторан закрывается после полуночи (например 02:00), просто введите это время.')}
+                </p>
+              </div>
               <Button type="submit" loading={isSubmitting}>{t('Guardar cambios')}</Button>
             </form>
           </div>

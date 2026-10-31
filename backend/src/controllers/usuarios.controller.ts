@@ -139,12 +139,12 @@ export async function getRestaurante(req: Request, res: Response): Promise<void>
 }
 
 export async function updateRestaurante(req: Request, res: Response): Promise<void> {
-  const { nombre, direccion, telefono, timerMesa, pieTicket, qrTicket, moneda, qrPago, printSettings } = req.body;
+  const { nombre, direccion, telefono, timerMesa, pieTicket, qrTicket, moneda, qrPago, printSettings, horaApertura, horaCierre } = req.body;
   if (moneda !== undefined && !isCurrency(moneda)) throw new HttpError(400, 'Moneda no admitida');
   const antes = await prisma.restaurante.findUnique({ where: { id: req.restauranteId! }, select: { nombre: true } });
   const restaurante = await prisma.restaurante.update({
     where: { id: req.restauranteId! },
-    data: { nombre, direccion, telefono, timerMesa, pieTicket, qrTicket, moneda, qrPago, printSettings },
+    data: { nombre, direccion, telefono, timerMesa, pieTicket, qrTicket, moneda, qrPago, printSettings, horaApertura, horaCierre },
   });
   // Автопереименование учётных данных: при смене названия меняем домен почт сотрудников.
   let correos: { dominio: string; cambios: number } | null = null;

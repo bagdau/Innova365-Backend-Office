@@ -13,6 +13,9 @@ export interface Restaurante {
   qrTicket?: string;
   printSettings?: import('../lib/printSettings').PrintSettings | null;
   timerMesa: number;
+  /** время работы «ЧЧ:ММ»; закрытие раньше открытия — работа через полночь */
+  horaApertura?: string | null;
+  horaCierre?: string | null;
 }
 
 export interface Usuario {

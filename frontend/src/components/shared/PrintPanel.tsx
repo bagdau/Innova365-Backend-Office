@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import { usePrintPanel, getQuickPrint, setQuickPrint } from '../../lib/printPanel';
 import { layoutDocument, printSrcdoc, type Fit, type LayoutResult, type Orient, type Paper } from '../../lib/print';
 import { impresionService, type EstadoImpresora, type HostEncontrado, type UsoImpresora } from '../../services/impresion.service';
-import { getDevicePrinter, printStations } from '../../lib/printClient';
+import { getDevicePrinter, printStations, getStationsOff, setStationOff } from '../../lib/printClient';
 import { probeAgent, agentPrinters, rawPrinterName, supportsRaw, printLocal, getLocalCfg, setLocalCfg, type LocalCfg } from '../../lib/localPrinter';
 import { hasNativePrinter, systemPrinters, getNativePrinter, setNativePrinter, printNativeDocument } from '../../lib/nativePrinter';
 import { Select } from '../ui/Select';
@@ -57,6 +57,10 @@ export function PrintPanel() {
   const [lcfg, setLcfg] = useState<LocalCfg>(getLocalCfg());
   const upd = (p: Partial<LocalCfg>) => { setLocalCfg(p); setLcfg(getLocalCfg()); };
   const { data: agent, refetch: refetchAgent } = useQuery({ queryKey: ['localAgent', lcfg.url], queryFn: () => probeAgent(lcfg.url), enabled: !!job?.server && lcfg.enabled, refetchInterval: job ? 8000 : false, staleTime: 3000 });
+  const stationsPedido = job?.server?.pedidoId;
+  const stationsOn = !!stationsPedido && (job?.server?.tipo === 'recibo' || job?.server?.tipo === 'cuenta');
+  const { data: stationList = [] } = useQuery({ queryKey: ['stationsPreview', stationsPedido], queryFn: () => impresionService.estaciones(stationsPedido!, printLang), enabled: stationsOn, staleTime: 15000, retry: false });
+  const [stOff, setStOff] = useState<string[]>(getStationsOff);
   const { data: winPrinters = [], isLoading: winPrintersLoading, isSuccess: winPrintersFetched, refetch: refetchWinPrinters } = useQuery({ queryKey: ['localAgentPrinters', lcfg.url], queryFn: () => agentPrinters(lcfg.url), enabled: !!job?.server && !!agent?.online && agent.allowed !== false, staleTime: 15000, retry: false });
   const nativeAvailable = hasNativePrinter();
   const { data: nativePrinters = [], isLoading: nativeLoading, refetch: refetchNative } = useQuery({ queryKey: ['nativeSystemPrinters'], queryFn: systemPrinters, enabled: !!job && nativeAvailable, staleTime: 5000, retry: false });
@@ -548,6 +552,20 @@ export function PrintPanel() {
                   {isRoll ? <ScrollText size={14} className="mt-0.5 flex-shrink-0" /> : <FileText size={14} className="mt-0.5 flex-shrink-0" />}
                   {isRoll ? t('La altura del rollo se calcula por el contenido; si las líneas no caben, la letra se reduce sola.') : t('Si la tabla es más ancha que la hoja, se reduce la escala o se gira la hoja automáticamente.')}
                 </p>
+              </section>
+            )}
+
+            {stationList.length > 0 && (
+              <section className="space-y-1.5">
+                <p className="text-sm font-medium text-foreground">{t('Печатать также на станциях')}</p>
+                {stationList.map((st) => (
+                  <label key={st.impresoraId} className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
+                    <input type="checkbox" className="accent-primary" checked={!stOff.includes(st.impresoraId)}
+                      onChange={(e) => { setStationOff(st.impresoraId, !e.target.checked); setStOff(getStationsOff()); }} />
+                    <span>{st.impresora}<span className="text-xs text-muted-foreground"> · {st.items} {t('поз.')}</span></span>
+                  </label>
+                ))}
+                <p className="text-xs text-muted-foreground">{t('Выбор запоминается на этой кассе.')}</p>
               </section>
             )}
 

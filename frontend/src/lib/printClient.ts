@@ -61,6 +61,17 @@ async function printOrderDirect(kind: 'recibo' | 'cuenta', pedido: Pedido): Prom
 }
 
 const stationSent = new Map<string, number>();
+const OFF_KEY = 'innova365-stations-off';
+
+/** Станции (id принтеров), отключённые на этой кассе: тикеты на них не отправляются. */
+export function getStationsOff(): string[] {
+  try { const v = JSON.parse(localStorage.getItem(OFF_KEY) ?? '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; } catch { return []; }
+}
+export function setStationOff(id: string, off: boolean) {
+  const rest = getStationsOff().filter((x) => x !== id);
+  try { localStorage.setItem(OFF_KEY, JSON.stringify(off ? [...rest, id] : rest)); } catch { /* ignore */ }
+  window.dispatchEvent(new Event('innova:stations'));
+}
 
 /**
  * Тикеты станций (кухня / бар / самса): вместе с печатью чека все сетевые принтеры, к которым привязаны категории заказа,
@@ -72,7 +83,8 @@ export async function printStations(pedidoId: string | undefined, tipo: 'recibo'
   if (Date.now() - (stationSent.get(key) ?? 0) < 15_000) return; // двойной вызов (кнопка + автопечать) не дублирует тикеты
   stationSent.set(key, Date.now());
   try {
-    const list = await impresionService.estaciones(pedidoId, lang);
+    const off = getStationsOff();
+    const list = (await impresionService.estaciones(pedidoId, lang)).filter((s) => !off.includes(s.impresoraId));
     if (!list.length) return;
     const cfg = getLocalCfg();
     const agent = cfg.enabled ? await probeAgent(cfg.url) : null;

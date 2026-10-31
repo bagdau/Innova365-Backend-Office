@@ -9,14 +9,14 @@ const L = {
   ru: {
     receipt: 'ЧЕК', bill: 'СЧЁТ', billNote: 'Предварительный счёт. Не является чеком оплаты.', order: 'Заказ', table: 'Стол', takeaway: 'С собой',
     orderBy: 'Оформил', date: 'Дата', total: 'ИТОГО', toPay: 'К ОПЛАТЕ', payment: 'Оплата', thanks: 'Спасибо за визит!',
-    kitchen: 'КУХНЯ', newOrder: 'НОВЫЙ ЗАКАЗ', add: 'ДОБАВЛЕНО', closing: 'ИТОГОВЫЙ ОТЧЁТ', paidOrders: 'Оплачено заказов', revenue: 'Выручка',
+    kitchen: 'КУХНЯ', pos: 'Позиция', qty: 'Кол', itemsTotal: 'Итого позиций', newOrder: 'НОВЫЙ ЗАКАЗ', add: 'ДОБАВЛЕНО', closing: 'ИТОГОВЫЙ ОТЧЁТ', paidOrders: 'Оплачено заказов', revenue: 'Выручка',
     byMethod: 'По способам оплаты', open: 'Открытых заказов', avg: 'Средний чек', test: 'ТЕСТ ПЕЧАТИ', testOk: 'Принтер работает', sample: 'Кириллица: АБВГД абвгд ёЁ №',
     width: 'Ширина', cp: 'Кодировка', cash: 'Наличные', colName: 'Наименование', colQty: 'Кол-во', colPrice: 'Цена', colSum: 'Сумма', subtotal: 'Блюда', service: 'Обслуживание',
   },
   en: {
     receipt: 'RECEIPT', bill: 'BILL', billNote: 'Pre-bill. Not a payment receipt.', order: 'Order', table: 'Table', takeaway: 'Takeaway',
     orderBy: 'Created by', date: 'Date', total: 'TOTAL', toPay: 'AMOUNT DUE', payment: 'Payment', thanks: 'Thank you!',
-    kitchen: 'KITCHEN', newOrder: 'NEW ORDER', add: 'ADDED', closing: 'DAILY SUMMARY', paidOrders: 'Paid orders', revenue: 'Revenue',
+    kitchen: 'KITCHEN', pos: 'Item', qty: 'Qty', itemsTotal: 'Total items', newOrder: 'NEW ORDER', add: 'ADDED', closing: 'DAILY SUMMARY', paidOrders: 'Paid orders', revenue: 'Revenue',
     byMethod: 'By payment method', open: 'Open orders', avg: 'Average check', test: 'PRINT TEST', testOk: 'Printer works', sample: 'Cyrillic: АБВГД абвгд ёЁ №',
     width: 'Width', cp: 'Codepage', cash: 'Cash', colName: 'Item', colQty: 'Qty', colPrice: 'Price', colSum: 'Total', subtotal: 'Items', service: 'Service',
   },
@@ -154,6 +154,20 @@ export function receiptDoc(r: Restaurante, p: PedidoPrint, o: Opts, kind: 'recib
   return finish(e, o, kind === 'recibo');
 }
 
+/** Таблица позиций тикета станции: « №| Позиция | Кол», длинные названия переносятся на следующие строки. */
+function stationTable(e: EscPos, items: PedidoPrint['items'], cols: number, t: { pos: string; qty: string }) {
+  const nameW = Math.max(8, cols - 10);
+  const cell = (n: string, name: string, q: string) => `${n.padStart(2)}| ${name.padEnd(nameW)} | ${q.padStart(3)}`;
+  e.bold(true).line(cell('№', t.pos, t.qty)).bold(false);
+  e.line(`--+${'-'.repeat(nameW + 2)}+${'-'.repeat(4)}`);
+  items.forEach((it, i) => {
+    const parts = wrap(it.producto.nombre, nameW);
+    e.bold(true).size(1, 2);
+    parts.forEach((part, k) => e.line(cell(k === 0 ? String(i + 1) : '', part, k === 0 ? String(it.cantidad) : '')));
+    e.size(1, 1).bold(false);
+  });
+}
+
 /** station — тикет станции (кухня/бар/самса): заголовок = имя принтера, фильтр requiereCocina не применяется (бар печатает напитки). */
 export function kitchenDoc(p: PedidoPrint, o: Opts, itemIds?: string[], station?: { title: string }): Buffer {
   const onlyNew = !!itemIds?.length && !station;
@@ -166,6 +180,11 @@ export function kitchenDoc(p: PedidoPrint, o: Opts, itemIds?: string[], station?
   if (p.mesero) e.line(`${t.orderBy}: ${p.mesero.nombre}`);
   e.rule();
   const items = p.items.filter((i) => (station ? !!i.id && !!itemIds?.includes(i.id) : i.producto.requiereCocina && (!onlyNew || (!!i.id && itemIds!.includes(i.id)))));
+  if (station) {
+    stationTable(e, items, o.cols, t);
+    e.rule('=').line(`${t.itemsTotal}: ${items.length}`);
+    return finish(e, o);
+  }
   for (const it of items) {
     e.bold(true).size(2, 2);
     wrap(`${it.cantidad} x ${it.producto.nombre}`, Math.floor(o.cols / 2)).forEach((l) => e.line(l));

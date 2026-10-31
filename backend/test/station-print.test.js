@@ -20,6 +20,13 @@ test('тикет станции печатает только свои пози�
   assert.doesNotMatch(bar, /Бургер/);
 });
 
+test('тикет станции — таблица: заголовок колонок, номер, название и количество в одной строке', () => {
+  const bar = text(kitchenDoc(pedido, opts, ['b'], { title: 'bar' }));
+  assert.match(bar, /N\| Позиция\s+\| Кол/);
+  assert.match(bar, /1\| Айран\s+\|\s+2/);
+  assert.match(bar, /Итого позиций: 1/);
+});
+
 test('тикет станции кухни не содержит позиций других станций', () => {
   const kuhnya = text(kitchenDoc(pedido, opts, ['a'], { title: 'kuhnya' }));
   assert.match(kuhnya, /KUHNYA/);
